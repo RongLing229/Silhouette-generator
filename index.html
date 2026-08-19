@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Silhouette Generator Prototype</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Silhouette Generator</h1>
+
+      <div class="controls">
+        <label>
+          <input type="checkbox" id="shapeCircle" checked>
+          Circle
+          <input type="number" id="weightCircle" class="shape-weight" value="1" min="0" max="10" title="Weight for Circle">
+        </label>
+        <label>
+          <input type="checkbox" id="shapeSquare" checked>
+          Square
+          <input type="number" id="weightSquare" class="shape-weight" value="1" min="0" max="10" title="Weight for Square">
+        </label>
+        <label>
+          <input type="checkbox" id="shapeTriangle" checked>
+          Triangle
+          <input type="number" id="weightTriangle" class="shape-weight" value="1" min="0" max="10" title="Weight for Triangle">
+        </label>
+
+        <!-- Simple body modifiers -->
+        <label>
+          Height
+          <input type="number" id="heightControl" class="body-control" value="1" min="0.6" max="1.6" step="0.05" title="Overall height multiplier">
+        </label>
+        <label>
+          Body Width
+          <input type="number" id="bodyWidthControl" class="body-control" value="1" min="0.6" max="1.6" step="0.05" title="Torso and hip width multiplier">
+        </label>
+        <label>
+          Shoulder Width
+          <input type="number" id="shoulderControl" class="body-control" value="1" min="0.6" max="1.6" step="0.05" title="Shoulder spacing multiplier">
+        </label>
+
+        <label>
+          <input type="checkbox" id="debugRegions">
+          Show Regions
+        </label>
+
+        <button id="generateButton">Generate</button>
+      </div>
+
+      <canvas id="drawCanvas" width="600" height="700"></canvas>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>
