@@ -122,6 +122,47 @@ h2 {
   gap: 0.55rem;
 }
 
+.shape-settings {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.shape-feedback {
+  display: grid;
+  justify-items: end;
+  min-width: 3.4rem;
+  line-height: 1.1;
+}
+
+.shape-percentage {
+  color: #4f4d47;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.shape-role {
+  margin-top: 0.16rem;
+  padding: 0.12rem 0.28rem;
+  border-radius: 999px;
+  color: #6f6c64;
+  background: #dfddd6;
+  font-size: 0.52rem;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.shape-role[data-role="primary"] {
+  color: #ffffff;
+  background: #292824;
+}
+
+.shape-role[data-role="off"] {
+  opacity: 0.55;
+}
+
 .language-options {
   display: grid;
   gap: 0.65rem;

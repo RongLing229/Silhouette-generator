@@ -24,7 +24,13 @@
               <input type="checkbox" id="shapeCircle" checked>
               <span>Circle</span>
             </span>
-            <input type="number" id="weightCircle" class="shape-weight" value="1" min="0" max="10" aria-label="Circle weight">
+            <span class="shape-settings">
+              <span class="shape-feedback" aria-live="polite">
+                <span id="circlePercentage" class="shape-percentage">33%</span>
+                <span id="circleRole" class="shape-role">Primary</span>
+              </span>
+              <input type="number" id="weightCircle" class="shape-weight" value="1" min="0" max="10" aria-label="Circle weight">
+            </span>
           </label>
 
           <label class="shape-row">
@@ -32,7 +38,13 @@
               <input type="checkbox" id="shapeSquare" checked>
               <span>Square</span>
             </span>
-            <input type="number" id="weightSquare" class="shape-weight" value="1" min="0" max="10" aria-label="Square weight">
+            <span class="shape-settings">
+              <span class="shape-feedback" aria-live="polite">
+                <span id="squarePercentage" class="shape-percentage">33%</span>
+                <span id="squareRole" class="shape-role">Primary</span>
+              </span>
+              <input type="number" id="weightSquare" class="shape-weight" value="1" min="0" max="10" aria-label="Square weight">
+            </span>
           </label>
 
           <label class="shape-row">
@@ -40,7 +52,13 @@
               <input type="checkbox" id="shapeTriangle" checked>
               <span>Triangle</span>
             </span>
-            <input type="number" id="weightTriangle" class="shape-weight" value="1" min="0" max="10" aria-label="Triangle weight">
+            <span class="shape-settings">
+              <span class="shape-feedback" aria-live="polite">
+                <span id="trianglePercentage" class="shape-percentage">33%</span>
+                <span id="triangleRole" class="shape-role">Primary</span>
+              </span>
+              <input type="number" id="weightTriangle" class="shape-weight" value="1" min="0" max="10" aria-label="Triangle weight">
+            </span>
           </label>
 
           <div class="language-options">
@@ -50,6 +68,15 @@
                 <option value="0.55">Low</option>
                 <option value="1" selected>Medium</option>
                 <option value="1.45">High</option>
+              </select>
+            </label>
+
+            <label class="select-row" for="shapeRigidity">
+              <span>Shape Rigidity</span>
+              <select id="shapeRigidity">
+                <option value="organic">Organic</option>
+                <option value="balanced" selected>Balanced</option>
+                <option value="geometric">Geometric</option>
               </select>
             </label>
 

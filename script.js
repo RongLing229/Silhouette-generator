@@ -8,8 +8,15 @@ const wCircle = document.getElementById('weightCircle');
 const wSquare = document.getElementById('weightSquare');
 const wTriangle = document.getElementById('weightTriangle');
 const shapeIntensityControl = document.getElementById('shapeIntensity');
+const shapeRigidityControl = document.getElementById('shapeRigidity');
 const massBiasControl = document.getElementById('massBias');
 const taperDirectionControl = document.getElementById('taperDirection');
+const circlePercentage = document.getElementById('circlePercentage');
+const squarePercentage = document.getElementById('squarePercentage');
+const trianglePercentage = document.getElementById('trianglePercentage');
+const circleRole = document.getElementById('circleRole');
+const squareRole = document.getElementById('squareRole');
+const triangleRole = document.getElementById('triangleRole');
 const heightControl = document.getElementById('heightControl');
 const bodyWidthControl = document.getElementById('bodyWidthControl');
 const shoulderControl = document.getElementById('shoulderControl');
@@ -29,6 +36,46 @@ function randomBetween(min, max) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+const shapeWeightControls = [
+  { checkbox: cbCircle, input: wCircle, percentage: circlePercentage, role: circleRole },
+  { checkbox: cbSquare, input: wSquare, percentage: squarePercentage, role: squareRole },
+  { checkbox: cbTriangle, input: wTriangle, percentage: trianglePercentage, role: triangleRole },
+];
+
+function updateShapeWeightFeedback() {
+  const entries = shapeWeightControls.map(control => ({
+    ...control,
+    weight: control.checkbox.checked
+      ? clamp(Number.parseFloat(control.input.value) || 0, 0, 10)
+      : 0,
+  }));
+  const activeEntries = entries.filter(entry => entry.weight > 0);
+  const totalWeight = activeEntries.reduce((sum, entry) => sum + entry.weight, 0);
+  const highestWeight = activeEntries.length
+    ? Math.max(...activeEntries.map(entry => entry.weight))
+    : 0;
+  const lowestWeight = activeEntries.length
+    ? Math.min(...activeEntries.map(entry => entry.weight))
+    : 0;
+
+  entries.forEach(entry => {
+    const percentage = totalWeight > 0 ? Math.round((entry.weight / totalWeight) * 100) : 0;
+    let role = 'Off';
+
+    if (entry.weight === highestWeight && entry.weight > 0) {
+      role = 'Primary';
+    } else if (entry.weight > 0 && activeEntries.length >= 3 && entry.weight === lowestWeight) {
+      role = 'Accent';
+    } else if (entry.weight > 0) {
+      role = 'Secondary';
+    }
+
+    entry.percentage.textContent = `${percentage}%`;
+    entry.role.textContent = role;
+    entry.role.dataset.role = role.toLowerCase();
+  });
 }
 
 const proportionControls = [
@@ -136,6 +183,9 @@ function randomiseProportions() {
 
 function getShapeLanguage() {
   const intensity = Number.parseFloat(shapeIntensityControl.value) || 1;
+  const rigidityName = shapeRigidityControl.value;
+  const rigidityValues = { organic: 0.18, balanced: 0.58, geometric: 1 };
+  const rigidity = rigidityValues[rigidityName] ?? rigidityValues.balanced;
   const options = [
     { name: 'circle', enabled: cbCircle.checked, weight: Number.parseFloat(wCircle.value) || 0 },
     { name: 'square', enabled: cbSquare.checked, weight: Number.parseFloat(wSquare.value) || 0 },
@@ -164,6 +214,8 @@ function getShapeLanguage() {
   return {
     dominant,
     intensity,
+    rigidity,
+    rigidityName,
     massBias: massBiasControl.value,
     taperDirection: taperDirectionControl.value,
     circleStrength: clamp(ratios.circle * intensity, 0, 1.45),
@@ -458,6 +510,73 @@ function getMassGeometry(mass, language) {
   };
 }
 
+function traceInfluencedMass(geometry, language) {
+  const {
+    axis,
+    normal,
+    start,
+    end,
+    startRadius,
+    endRadius,
+    startLeft,
+    startRight,
+    endLeft,
+    endRight,
+  } = geometry;
+  const organicity = 1 - language.rigidity;
+  const sideBend = clamp(
+    0.015
+      + language.circleStrength * 0.16
+      + organicity * 0.035
+      - language.squareStrength * 0.03
+      - language.triangleStrength * 0.025,
+    0,
+    0.24,
+  );
+  const capRound = clamp(
+    0.34
+      + language.circleStrength * 0.5
+      + organicity * 0.14
+      - language.squareStrength * 0.18
+      - language.triangleStrength * 0.14,
+    0.12,
+    1.05,
+  );
+  const length = Math.hypot(end.x - start.x, end.y - start.y);
+
+  ctx.beginPath();
+  ctx.moveTo(startLeft.x, startLeft.y);
+  ctx.bezierCurveTo(
+    startLeft.x + axis.x * length * 0.34 + normal.x * startRadius * sideBend,
+    startLeft.y + axis.y * length * 0.34 + normal.y * startRadius * sideBend,
+    endLeft.x - axis.x * length * 0.34 + normal.x * endRadius * sideBend,
+    endLeft.y - axis.y * length * 0.34 + normal.y * endRadius * sideBend,
+    endLeft.x,
+    endLeft.y,
+  );
+  ctx.quadraticCurveTo(
+    end.x + axis.x * endRadius * capRound,
+    end.y + axis.y * endRadius * capRound,
+    endRight.x,
+    endRight.y,
+  );
+  ctx.bezierCurveTo(
+    endRight.x - axis.x * length * 0.34 - normal.x * endRadius * sideBend,
+    endRight.y - axis.y * length * 0.34 - normal.y * endRadius * sideBend,
+    startRight.x + axis.x * length * 0.34 - normal.x * startRadius * sideBend,
+    startRight.y + axis.y * length * 0.34 - normal.y * startRadius * sideBend,
+    startRight.x,
+    startRight.y,
+  );
+  ctx.quadraticCurveTo(
+    start.x - axis.x * startRadius * capRound,
+    start.y - axis.y * startRadius * capRound,
+    startLeft.x,
+    startLeft.y,
+  );
+  ctx.closePath();
+}
+
 function traceRoundedMass(geometry, language) {
   const {
     axis,
@@ -577,7 +696,9 @@ function traceAngularMass(geometry, language) {
 function traceMassPath(mass, language) {
   const geometry = getMassGeometry(mass, language);
 
-  if (language.dominant === 'square') {
+  if (language.rigidity < 0.9) {
+    traceInfluencedMass(geometry, language);
+  } else if (language.dominant === 'square') {
     traceBlockMass(geometry, language);
   } else if (language.dominant === 'triangle') {
     traceAngularMass(geometry, language);
@@ -772,6 +893,12 @@ proportionControls.forEach(control => {
   control.numberInput.addEventListener('change', () => updateFromNumber(control, true));
   updateFromSlider(control);
 });
+
+shapeWeightControls.forEach(control => {
+  control.input.addEventListener('input', updateShapeWeightFeedback);
+  control.checkbox.addEventListener('change', updateShapeWeightFeedback);
+});
+updateShapeWeightFeedback();
 
 randomiseProportionsButton.addEventListener('click', randomiseProportions);
 generateButton.addEventListener('click', generateSilhouette);
