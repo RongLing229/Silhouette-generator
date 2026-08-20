@@ -15,6 +15,68 @@ const debugToggle = document.getElementById('debugRegions');
 function randInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
+
+function buildShapeHierarchy(shapes) {
+  // Existing weights now express hierarchy preference: larger weights receive
+  // the more visually dominant role. Random tie-breakers keep equal settings varied.
+  const ranked = shapes
+    .map(shape => ({ ...shape, tieBreaker: Math.random() }))
+    .sort((a, b) => b.weight - a.weight || b.tieBreaker - a.tieBreaker);
+
+  const primary = ranked[0].name;
+  const secondary = ranked[1] ? ranked[1].name : primary;
+
+  return {
+    primary,
+    secondary,
+    // Do not pretend that one of two selected shapes is a distinct accent.
+    accent: ranked[2] ? ranked[2].name : null,
+  };
+}
+
+function getRegionalRoleWeights(region, pos) {
+  if (region.name === 'torso') return { primary: 0.88, secondary: 0.12, accent: 0 };
+  if (region.name === 'hips') return { primary: 0.84, secondary: 0.16, accent: 0 };
+  if (region.name === 'head') return { primary: 0.2, secondary: 0.65, accent: 0.15 };
+
+  if (region.name === 'leftArm' || region.name === 'rightArm') {
+    // Measure outward from the shoulder so the current broad arm region can
+    // still distinguish shoulder, elbow, and forearm detail areas.
+    const fromShoulder = region.name === 'leftArm'
+      ? (region.x + region.w - pos.x) / region.w
+      : (pos.x - region.x) / region.w;
+    const isShoulderTip = fromShoulder < 0.18;
+    const isElbow = fromShoulder >= 0.42 && fromShoulder <= 0.58;
+
+    return isShoulderTip || isElbow
+      ? { primary: 0.12, secondary: 0.7, accent: 0.18 }
+      : { primary: 0.18, secondary: 0.82, accent: 0 };
+  }
+
+  if (region.name === 'leftLeg' || region.name === 'rightLeg') {
+    const downLeg = (pos.y - region.y) / region.h;
+    if (downLeg < 0.45) return { primary: 0.78, secondary: 0.22, accent: 0 };
+    if (downLeg <= 0.58) return { primary: 0.36, secondary: 0.46, accent: 0.18 };
+    return { primary: 0.18, secondary: 0.82, accent: 0 };
+  }
+
+  return { primary: 0.5, secondary: 0.5, accent: 0 };
+}
+
+function pickHierarchicalShape(hierarchy, roleWeights) {
+  const choices = Object.entries(roleWeights)
+    .filter(([role, weight]) => weight > 0 && hierarchy[role])
+    .map(([role, weight]) => ({ role, weight, type: hierarchy[role] }));
+  const total = choices.reduce((sum, choice) => sum + choice.weight, 0);
+  let roll = Math.random() * total;
+
+  for (const choice of choices) {
+    roll -= choice.weight;
+    if (roll <= 0) return choice;
+  }
+
+  return choices[choices.length - 1];
+}
 // Define simple invisible body regions relative to the canvas.
 function getBodyRegions(c, modifiers = { height: 1, bodyWidth: 1, shoulder: 1 }) {
   const w = c.width;
@@ -63,24 +125,26 @@ function getBodyRegions(c, modifiers = { height: 1, bodyWidth: 1, shoulder: 1 })
 }
 
 generateButton.addEventListener('click', () => {
-  // build a simple shape pool using weights (repeat type by its integer weight)
-  const shapesPool = [];
-  const addWeighted = (checked, weightInput, name) => {
+  const selectedShapes = [];
+  const addShape = (checked, weightInput, name) => {
     if (!checked) return;
     let w = parseInt(weightInput.value, 10);
     if (!Number.isFinite(w) || w < 0) w = 0;
-    w = Math.min(10, w); // cap to keep pool small
-    for (let i = 0; i < w; i++) shapesPool.push(name);
+    w = Math.min(10, w);
+    if (w > 0) selectedShapes.push({ name, weight: w });
   };
 
-  addWeighted(cbCircle.checked, wCircle, 'circle');
-  addWeighted(cbSquare.checked, wSquare, 'square');
-  addWeighted(cbTriangle.checked, wTriangle, 'triangle');
+  addShape(cbCircle.checked, wCircle, 'circle');
+  addShape(cbSquare.checked, wSquare, 'square');
+  addShape(cbTriangle.checked, wTriangle, 'triangle');
 
   // clear canvas
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  if (shapesPool.length === 0) return; // nothing selected or all weights zero
+  if (selectedShapes.length === 0) return; // nothing selected or all weights zero
+
+  // Assign the three roles once per figure, then reuse them in every region.
+  const shapeHierarchy = buildShapeHierarchy(selectedShapes);
 
   // read modifiers (simple float values, default 1)
   const hf = Math.max(0.6, Math.min(1.6, parseFloat(heightControl.value) || 1));
@@ -214,15 +278,18 @@ generateButton.addEventListener('click', () => {
     if (region.name === 'hips') { bias = 0.35; }
 
     for (let i = 0; i < n; i++) {
-        // pick a shape type according to the simple weighted pool
-        const type = shapesPool[randInt(0, shapesPool.length - 1)];
-
       const maxSize = Math.max(8, Math.min(region.w, region.h));
       const base = randInt(8, Math.min(60, Math.floor(maxSize)));
       // scale shape sizes by height factor so taller body yields larger shapes
-      const size = Math.max(4, Math.round(base * hf * scale));
-
-      const pos = pickPos(region, regionAnchor, bias, size);
+      const baseSize = Math.max(4, Math.round(base * hf * scale));
+      const pos = pickPos(region, regionAnchor, bias, baseSize);
+      const shape = pickHierarchicalShape(
+        shapeHierarchy,
+        getRegionalRoleWeights(region, pos),
+      );
+      const roleScale = { primary: 1, secondary: 0.86, accent: 0.62 };
+      const size = Math.max(4, Math.round(baseSize * roleScale[shape.role]));
+      const type = shape.type;
 
       if (type === 'circle') {
         ctx.beginPath();
