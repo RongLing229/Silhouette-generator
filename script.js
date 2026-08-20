@@ -387,7 +387,7 @@ function makeMass(name, start, end, startWidth, endWidth, taperDirection = 'toEn
   return { name, start, end, startWidth, endWidth, taperDirection, ...options };
 }
 
-function createProceduralContourProfile(language, random) {
+function createProceduralContourProfile(language, random, massName) {
   const { circle, square, triangle } = language.shapeBlend;
   const variationLevel = clamp(language.contourVariation / 0.07, 0, 1);
   const nodeCount = { clean: 2, natural: 3, expressive: 4 }[language.contourVariationName] ?? 3;
@@ -395,8 +395,13 @@ function createProceduralContourProfile(language, random) {
   const circleAmplitude = circle * (0.055 + variationLevel * 0.025) * grammarScale;
   const squareAmplitude = square * (0.035 + variationLevel * 0.03) * grammarScale;
   const triangleAmplitude = triangle * (0.085 + variationLevel * 0.055) * grammarScale;
-  const strongCornerIndex = triangle > 0.25 && random() < 0.28 + triangle * 0.35
-    ? Math.floor(random() * nodeCount)
+  const cornerCandidates = Array.from({ length: nodeCount }, (_, index) => index)
+    .filter(index => !(massName === 'torso' && index === nodeCount - 1))
+    .filter(index => !(massName === 'pelvis' && index === 0));
+  const strongCornerIndex = triangle > 0.25
+    && cornerCandidates.length > 0
+    && random() < 0.28 + triangle * 0.35
+    ? cornerCandidates[Math.floor(random() * cornerCandidates.length)]
     : -1;
   const strongCornerSide = random() < 0.5 ? 'left' : 'right';
   let squarePlateau = randomBetween(-0.7, 0.7, random);
@@ -442,6 +447,19 @@ function createProceduralContourProfile(language, random) {
       }
     }
 
+    const isProtectedWaistNode = (massName === 'torso' && index === nodeCount - 1)
+      || (massName === 'pelvis' && index === 0);
+    if (isProtectedWaistNode) {
+      // Keep broad inward taper, but suppress the small outward vertices that
+      // become spikes when two independently generated contours meet.
+      const outwardLimit = 0.012 + circle * 0.025 + square * 0.01;
+
+      leftOffset = clamp(leftOffset, -0.13, outwardLimit);
+      rightOffset = clamp(rightOffset, -0.13, outwardLimit);
+      leftSharpness = Math.min(leftSharpness, 0.52);
+      rightSharpness = Math.min(rightSharpness, 0.52);
+    }
+
     return {
       t,
       leftOffset: clamp(leftOffset, -0.22, 0.26),
@@ -473,7 +491,7 @@ function createMassVariation(language, random, seed) {
     'pelvis', 'torso', 'neck', 'head',
   ];
   const contours = Object.fromEntries(
-    massNames.map(name => [name, createProceduralContourProfile(language, random)]),
+    massNames.map(name => [name, createProceduralContourProfile(language, random, name)]),
   );
 
   // Broad mass shifts stay correlated and restrained. Finer irregularity is
@@ -653,6 +671,32 @@ function buildBodyMasses(proportions, skeleton, variation, language) {
   const torsoBottomWidth = rawTorsoBottomWidth * (1 - rhythmBlend)
     + pelvisWidth * rhythmBlend;
   const pelvisTopWidth = torsoBottomWidth * 0.45 + pelvisWidth * 0.55;
+
+  // Torso and pelvis meet at one protected waist boundary. Shape language can
+  // move that boundary inward or keep it full, but cannot create two competing
+  // endpoint corners in the same narrow transition zone.
+  const transitionAverage = (torsoBottomWidth + pelvisTopWidth) / 2;
+  const taperTarget = language.taperDirection === 'top'
+    ? torsoBottomWidth
+    : language.taperDirection === 'bottom'
+      ? pelvisTopWidth
+      : transitionAverage;
+  const triangleNarrowing = clamp(
+    language.triangleStrength * (0.08 + language.rigidity * 0.06),
+    0,
+    0.2,
+  );
+  const circleFullness = clamp(language.circleStrength * 0.025, 0, 0.04);
+  const squareStability = clamp(language.squareStrength * 0.16, 0, 0.22);
+  const directionalWaistWidth = transitionAverage * 0.76 + taperTarget * 0.24;
+  const shapedWaistWidth = directionalWaistWidth
+    * (1 - triangleNarrowing + circleFullness);
+  const waistWidth = shapedWaistWidth * (1 - squareStability)
+    + transitionAverage * squareStability;
+  const waistAnchor = {
+    x: (skeleton.torsoBottom.x + skeleton.pelvisTop.x) / 2,
+    y: (skeleton.torsoBottom.y + skeleton.pelvisTop.y) / 2,
+  };
   const headWidth = 72 * proportions.headSize * variation.headWidth;
   const neckWidth = Math.max(18, Math.min(headWidth * 0.52, torsoTopWidth * 0.28));
   const armWidth = 50 * limbUpperScale * variation.limbMass * contourFullness * bias.upper;
@@ -706,12 +750,22 @@ function buildBodyMasses(proportions, skeleton, variation, language) {
       massOptions('rightUpperArm', { lockEndWidth: true, jointOverlap: true }),
     ),
     makeMass(
-      'pelvis', skeleton.pelvisTop, skeleton.pelvisBottom,
-      pelvisTopWidth, pelvisWidth, 'toStart', massOptions('pelvis'),
+      'pelvis', waistAnchor, skeleton.pelvisBottom,
+      waistWidth, pelvisWidth, 'toStart',
+      massOptions('pelvis', {
+        lockStartWidth: true,
+        jointOverlap: true,
+        protectedStartWidth: pelvisTopWidth,
+      }),
     ),
     makeMass(
-      'torso', skeleton.neckAnchor, skeleton.torsoBottom,
-      torsoTopWidth, torsoBottomWidth, 'toEnd', massOptions('torso'),
+      'torso', skeleton.neckAnchor, waistAnchor,
+      torsoTopWidth, waistWidth, 'toEnd',
+      massOptions('torso', {
+        lockEndWidth: true,
+        jointOverlap: true,
+        protectedEndWidth: torsoBottomWidth,
+      }),
     ),
     makeMass(
       'neck', skeleton.headBottom, skeleton.neckAnchor,
@@ -775,6 +829,12 @@ function fitMassesToFrame(masses, transform = getFrameTransform(masses)) {
     end: transformPoint(mass.end, transform),
     startWidth: mass.startWidth * transform.scale,
     endWidth: mass.endWidth * transform.scale,
+    protectedStartWidth: mass.protectedStartWidth
+      ? mass.protectedStartWidth * transform.scale
+      : undefined,
+    protectedEndWidth: mass.protectedEndWidth
+      ? mass.protectedEndWidth * transform.scale
+      : undefined,
   }));
 }
 
@@ -879,6 +939,8 @@ function getMassGeometry(mass, language) {
     taperDirection,
     contour,
     region,
+    protectedStartWidth: mass.protectedStartWidth,
+    protectedEndWidth: mass.protectedEndWidth,
     startLeft: { x: start.x + normal.x * startRadius, y: start.y + normal.y * startRadius },
     startRight: { x: start.x - normal.x * startRadius, y: start.y - normal.y * startRadius },
     endLeft: { x: end.x + normal.x * endRadius, y: end.y + normal.y * endRadius },
@@ -923,6 +985,8 @@ function traceProfiledMass(geometry, language) {
     endRight,
     contour,
     region,
+    protectedStartWidth,
+    protectedEndWidth,
   } = geometry;
   const regionCurve = {
     torso: 1.15,
@@ -952,12 +1016,18 @@ function traceProfiledMass(geometry, language) {
   const leftPoints = [{ ...startLeft, sharpness: 0 }];
   const rightPoints = [{ ...startRight, sharpness: 0 }];
 
-  contourNodes.forEach(node => {
+  contourNodes.forEach((node, index) => {
     const centre = {
       x: start.x + axis.x * length * node.t,
       y: start.y + axis.y * length * node.t,
     };
-    const radius = startRadius + (endRadius - startRadius) * node.t;
+    let radius = startRadius + (endRadius - startRadius) * node.t;
+    if (protectedStartWidth && index === 0) {
+      radius = radius * 0.35 + (protectedStartWidth / 2) * 0.65;
+    }
+    if (protectedEndWidth && index === contourNodes.length - 1) {
+      radius = radius * 0.35 + (protectedEndWidth / 2) * 0.65;
+    }
     const flow = Math.sin(Math.PI * node.t);
     const centreShift = contour.direction * radius * 0.35 * flow;
     const leftRadius = radius * (1 + node.leftOffset + leftBend * flow);
