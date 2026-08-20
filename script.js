@@ -43,12 +43,34 @@ const pelvisWidthDescription = document.getElementById('pelvisWidthDescription')
 const legLengthDescription = document.getElementById('legLengthDescription');
 const shoulderDescription = document.getElementById('shoulderDescription');
 
-function randomBetween(min, max) {
-  return min + Math.random() * (max - min);
+function randomBetween(min, max, random = Math.random) {
+  return min + random() * (max - min);
 }
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function createGenerationSeed() {
+  if (globalThis.crypto && typeof globalThis.crypto.getRandomValues === 'function') {
+    const values = new Uint32Array(1);
+    globalThis.crypto.getRandomValues(values);
+    return values[0];
+  }
+
+  return Math.floor(Math.random() * 0x100000000);
+}
+
+function createSeededRandom(seed) {
+  let state = seed >>> 0;
+
+  return () => {
+    state += 0x6D2B79F5;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 0x100000000;
+  };
 }
 
 const shapeWeightControls = [
@@ -337,35 +359,27 @@ function getShapeLanguage() {
   const active = options.filter(option => option.enabled && option.weight > 0);
   if (active.length === 0) return null;
 
-  const highestWeight = Math.max(...active.map(option => option.weight));
-  const dominantCandidates = active.filter(option => option.weight === highestWeight);
-  const dominant = dominantCandidates[Math.floor(Math.random() * dominantCandidates.length)].name;
   const totalWeight = active.reduce((sum, option) => sum + option.weight, 0);
   const ratios = { circle: 0, square: 0, triangle: 0 };
 
   active.forEach(option => {
     ratios[option.name] = option.weight / totalWeight;
   });
-
-  // One dominant language keeps the figure coherent; the remaining blend lets
-  // every enabled weight influence curvature, blockiness, and taper.
-  Object.keys(ratios).forEach(name => {
-    ratios[name] = ratios[name] * 0.45 + (name === dominant ? 0.55 : 0);
-  });
+  const shapeBlend = { ...ratios };
 
   return {
-    dominant,
     intensity,
     rigidity,
     rigidityName,
     contourVariationName,
     contourVariation: contourVariationValues[contourVariationName]
       ?? contourVariationValues.natural,
+    shapeBlend,
     massBias: massBiasControl.value,
     taperDirection: taperDirectionControl.value,
-    circleStrength: clamp(ratios.circle * intensity, 0, 1.45),
-    squareStrength: clamp(ratios.square * intensity, 0, 1.45),
-    triangleStrength: clamp(ratios.triangle * intensity, 0, 1.45),
+    circleStrength: clamp(shapeBlend.circle * intensity, 0, 1.45),
+    squareStrength: clamp(shapeBlend.square * intensity, 0, 1.45),
+    triangleStrength: clamp(shapeBlend.triangle * intensity, 0, 1.45),
   };
 }
 
@@ -373,10 +387,84 @@ function makeMass(name, start, end, startWidth, endWidth, taperDirection = 'toEn
   return { name, start, end, startWidth, endWidth, taperDirection, ...options };
 }
 
-function createMassVariation(language) {
+function createProceduralContourProfile(language, random) {
+  const { circle, square, triangle } = language.shapeBlend;
+  const variationLevel = clamp(language.contourVariation / 0.07, 0, 1);
+  const nodeCount = { clean: 2, natural: 3, expressive: 4 }[language.contourVariationName] ?? 3;
+  const grammarScale = language.intensity * (0.72 + variationLevel * 0.28);
+  const circleAmplitude = circle * (0.055 + variationLevel * 0.025) * grammarScale;
+  const squareAmplitude = square * (0.035 + variationLevel * 0.03) * grammarScale;
+  const triangleAmplitude = triangle * (0.085 + variationLevel * 0.055) * grammarScale;
+  const strongCornerIndex = triangle > 0.25 && random() < 0.28 + triangle * 0.35
+    ? Math.floor(random() * nodeCount)
+    : -1;
+  const strongCornerSide = random() < 0.5 ? 'left' : 'right';
+  let squarePlateau = randomBetween(-0.7, 0.7, random);
+
+  const nodes = Array.from({ length: nodeCount }, (_, index) => {
+    const baseT = (index + 1) / (nodeCount + 1);
+    const tJitter = randomBetween(-0.025, 0.025, random) * variationLevel;
+    const t = clamp(baseT + tJitter, 0.12, 0.88);
+    const circleBulge = Math.sin(Math.PI * t)
+      * circleAmplitude
+      * randomBetween(0.78, 1.14, random);
+
+    if (index === 0 || random() > 0.65) {
+      squarePlateau = randomBetween(-0.7, 0.7, random);
+    }
+    const squareStep = squarePlateau * squareAmplitude;
+
+    const directionalSlope = (t - 0.5) * 2
+      * triangleAmplitude
+      * randomBetween(-0.65, 0.65, random);
+    let leftOffset = circleBulge + squareStep + directionalSlope
+      + randomBetween(-0.35, 0.35, random) * triangleAmplitude;
+    let rightOffset = circleBulge + squareStep + directionalSlope
+      + randomBetween(-0.35, 0.35, random) * triangleAmplitude;
+    const baseSharpness = square * (0.32 + language.rigidity * 0.4)
+      + triangle * (0.28 + language.rigidity * 0.55)
+      - circle * 0.18;
+    let leftSharpness = baseSharpness;
+    let rightSharpness = baseSharpness;
+
+    if (index === strongCornerIndex) {
+      const cornerDirection = random() < 0.5 ? -1 : 1;
+      const cornerOffset = triangleAmplitude
+        * (0.72 + language.rigidity * 0.52)
+        * cornerDirection;
+
+      if (strongCornerSide === 'left') {
+        leftOffset += cornerOffset;
+        leftSharpness += triangle * (0.16 + language.rigidity * 0.18);
+      } else {
+        rightOffset += cornerOffset;
+        rightSharpness += triangle * (0.16 + language.rigidity * 0.18);
+      }
+    }
+
+    return {
+      t,
+      leftOffset: clamp(leftOffset, -0.22, 0.26),
+      rightOffset: clamp(rightOffset, -0.22, 0.26),
+      leftSharpness: clamp(leftSharpness, 0, 0.94),
+      rightSharpness: clamp(rightSharpness, 0, 0.94),
+    };
+  });
+
+  return {
+    startScale: 1 + randomBetween(-language.contourVariation, language.contourVariation, random) * 0.45,
+    endScale: 1 + randomBetween(-language.contourVariation, language.contourVariation, random) * 0.45,
+    leftCurve: randomBetween(-language.contourVariation, language.contourVariation, random),
+    rightCurve: randomBetween(-language.contourVariation, language.contourVariation, random),
+    direction: randomBetween(-language.contourVariation, language.contourVariation, random),
+    nodes,
+  };
+}
+
+function createMassVariation(language, random, seed) {
   const contourAmount = language.contourVariation;
   const distributionAmount = 0.02 + contourAmount * 0.6;
-  const vary = amount => 1 + randomBetween(-amount, amount);
+  const vary = amount => 1 + randomBetween(-amount, amount, random);
   const massNames = [
     'leftLowerLeg', 'rightLowerLeg',
     'leftUpperLeg', 'rightUpperLeg',
@@ -384,13 +472,9 @@ function createMassVariation(language) {
     'leftUpperArm', 'rightUpperArm',
     'pelvis', 'torso', 'neck', 'head',
   ];
-  const contours = Object.fromEntries(massNames.map(name => [name, {
-    startScale: vary(contourAmount * 0.45),
-    endScale: vary(contourAmount * 0.45),
-    leftCurve: randomBetween(-contourAmount, contourAmount),
-    rightCurve: randomBetween(-contourAmount, contourAmount),
-    direction: randomBetween(-contourAmount, contourAmount),
-  }]));
+  const contours = Object.fromEntries(
+    massNames.map(name => [name, createProceduralContourProfile(language, random)]),
+  );
 
   // Broad mass shifts stay correlated and restrained. Finer irregularity is
   // stored per contour so redrawing an edited pose never causes visual jitter.
@@ -402,6 +486,7 @@ function createMassVariation(language) {
     torsoBottomBias: vary(contourAmount * 0.55),
     headWidth: vary(distributionAmount * 0.8),
     pelvisWidth: vary(contourAmount * 0.65),
+    seed,
     contours,
   };
 }
@@ -801,6 +886,29 @@ function getMassGeometry(mass, language) {
   };
 }
 
+function traceContourSide(points) {
+  const lastIndex = points.length - 1;
+
+  for (let index = 1; index < lastIndex; index += 1) {
+    const point = points[index];
+    const nextPoint = points[index + 1];
+
+    if (point.sharpness >= 0.66) {
+      ctx.lineTo(point.x, point.y);
+    } else {
+      ctx.quadraticCurveTo(
+        point.x,
+        point.y,
+        (point.x + nextPoint.x) / 2,
+        (point.y + nextPoint.y) / 2,
+      );
+    }
+  }
+
+  const endPoint = points[lastIndex];
+  ctx.lineTo(endPoint.x, endPoint.y);
+}
+
 function traceProfiledMass(geometry, language) {
   const {
     axis,
@@ -840,45 +948,46 @@ function traceProfiledMass(geometry, language) {
     0.94,
   );
   const length = Math.hypot(end.x - start.x, end.y - start.y);
-  const handleLength = clamp(
-    0.31 + language.circleStrength * 0.025 - language.squareStrength * 0.025,
-    0.26,
-    0.36,
-  );
-  const directionOffset = contour.direction * Math.min(startRadius, endRadius) * 0.75;
+  const contourNodes = contour.nodes || [];
+  const leftPoints = [{ ...startLeft, sharpness: 0 }];
+  const rightPoints = [{ ...startRight, sharpness: 0 }];
+
+  contourNodes.forEach(node => {
+    const centre = {
+      x: start.x + axis.x * length * node.t,
+      y: start.y + axis.y * length * node.t,
+    };
+    const radius = startRadius + (endRadius - startRadius) * node.t;
+    const flow = Math.sin(Math.PI * node.t);
+    const centreShift = contour.direction * radius * 0.35 * flow;
+    const leftRadius = radius * (1 + node.leftOffset + leftBend * flow);
+    const rightRadius = radius * (1 + node.rightOffset + rightBend * flow);
+
+    leftPoints.push({
+      x: centre.x + normal.x * (leftRadius + centreShift),
+      y: centre.y + normal.y * (leftRadius + centreShift),
+      sharpness: node.leftSharpness,
+    });
+    rightPoints.push({
+      x: centre.x - normal.x * (rightRadius - centreShift),
+      y: centre.y - normal.y * (rightRadius - centreShift),
+      sharpness: node.rightSharpness,
+    });
+  });
+
+  leftPoints.push({ ...endLeft, sharpness: 0 });
+  rightPoints.push({ ...endRight, sharpness: 0 });
 
   ctx.beginPath();
   ctx.moveTo(startLeft.x, startLeft.y);
-  ctx.bezierCurveTo(
-    startLeft.x + axis.x * length * handleLength
-      + normal.x * (startRadius * leftBend + directionOffset),
-    startLeft.y + axis.y * length * handleLength
-      + normal.y * (startRadius * leftBend + directionOffset),
-    endLeft.x - axis.x * length * handleLength
-      + normal.x * (endRadius * leftBend - directionOffset),
-    endLeft.y - axis.y * length * handleLength
-      + normal.y * (endRadius * leftBend - directionOffset),
-    endLeft.x,
-    endLeft.y,
-  );
+  traceContourSide(leftPoints);
   ctx.quadraticCurveTo(
     end.x + axis.x * endRadius * capRound,
     end.y + axis.y * endRadius * capRound,
     endRight.x,
     endRight.y,
   );
-  ctx.bezierCurveTo(
-    endRight.x - axis.x * length * handleLength
-      - normal.x * (endRadius * rightBend + directionOffset),
-    endRight.y - axis.y * length * handleLength
-      - normal.y * (endRadius * rightBend + directionOffset),
-    startRight.x + axis.x * length * handleLength
-      - normal.x * (startRadius * rightBend - directionOffset),
-    startRight.y + axis.y * length * handleLength
-      - normal.y * (startRadius * rightBend - directionOffset),
-    startRight.x,
-    startRight.y,
-  );
+  traceContourSide([...rightPoints].reverse());
   ctx.quadraticCurveTo(
     start.x - axis.x * startRadius * capRound,
     start.y - axis.y * startRadius * capRound,
@@ -1131,11 +1240,19 @@ function renderSilhouette() {
   }
 }
 
-function generateSilhouette() {
+function generateSilhouette(requestedSeed) {
+  // Passing a stored canvas.dataset.seed value back as a number reproduces
+  // the procedural contour while the same controls and proportions are active.
+  const seed = Number.isInteger(requestedSeed)
+    ? requestedSeed >>> 0
+    : createGenerationSeed();
+  const random = createSeededRandom(seed);
+
   currentShapeLanguage = getShapeLanguage();
   currentMassVariation = currentShapeLanguage
-    ? createMassVariation(currentShapeLanguage)
+    ? createMassVariation(currentShapeLanguage, random, seed)
     : null;
+  canvas.dataset.seed = String(seed);
   renderSilhouette();
 }
 
@@ -1238,7 +1355,7 @@ proportionStyleControl.addEventListener('change', () => {
   applyProportionStyle(proportionStyleControl.value);
 });
 randomiseProportionsButton.addEventListener('click', randomiseProportions);
-generateButton.addEventListener('click', generateSilhouette);
+generateButton.addEventListener('click', () => generateSilhouette());
 symmetryToggle.addEventListener('change', updateSymmetryState);
 editPoseToggle.addEventListener('change', () => {
   canvas.classList.toggle('pose-editing', editPoseToggle.checked);
