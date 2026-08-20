@@ -9,6 +9,7 @@ const wSquare = document.getElementById('weightSquare');
 const wTriangle = document.getElementById('weightTriangle');
 const shapeIntensityControl = document.getElementById('shapeIntensity');
 const shapeRigidityControl = document.getElementById('shapeRigidity');
+const contourVariationControl = document.getElementById('contourVariation');
 const massBiasControl = document.getElementById('massBias');
 const taperDirectionControl = document.getElementById('taperDirection');
 const circlePercentage = document.getElementById('circlePercentage');
@@ -325,6 +326,8 @@ function getShapeLanguage() {
   const rigidityName = shapeRigidityControl.value;
   const rigidityValues = { organic: 0.18, balanced: 0.58, geometric: 1 };
   const rigidity = rigidityValues[rigidityName] ?? rigidityValues.balanced;
+  const contourVariationName = contourVariationControl.value;
+  const contourVariationValues = { clean: 0.008, natural: 0.035, expressive: 0.07 };
   const options = [
     { name: 'circle', enabled: cbCircle.checked, weight: Number.parseFloat(wCircle.value) || 0 },
     { name: 'square', enabled: cbSquare.checked, weight: Number.parseFloat(wSquare.value) || 0 },
@@ -355,18 +358,14 @@ function getShapeLanguage() {
     intensity,
     rigidity,
     rigidityName,
+    contourVariationName,
+    contourVariation: contourVariationValues[contourVariationName]
+      ?? contourVariationValues.natural,
     massBias: massBiasControl.value,
     taperDirection: taperDirectionControl.value,
     circleStrength: clamp(ratios.circle * intensity, 0, 1.45),
     squareStrength: clamp(ratios.square * intensity, 0, 1.45),
     triangleStrength: clamp(ratios.triangle * intensity, 0, 1.45),
-    roundness: clamp(
-      0.1 + ratios.circle * 0.76 * intensity - ratios.square * 0.08 - ratios.triangle * 0.08,
-      0.04,
-      0.98,
-    ),
-    blockiness: clamp(0.08 + ratios.square * 0.88 * intensity, 0.08, 1),
-    taper: clamp(0.05 + ratios.triangle * 0.72 * intensity, 0.05, 0.95),
   };
 }
 
@@ -374,15 +373,36 @@ function makeMass(name, start, end, startWidth, endWidth, taperDirection = 'toEn
   return { name, start, end, startWidth, endWidth, taperDirection, ...options };
 }
 
-function createMassVariation() {
+function createMassVariation(language) {
+  const contourAmount = language.contourVariation;
+  const distributionAmount = 0.02 + contourAmount * 0.6;
+  const vary = amount => 1 + randomBetween(-amount, amount);
+  const massNames = [
+    'leftLowerLeg', 'rightLowerLeg',
+    'leftUpperLeg', 'rightUpperLeg',
+    'leftLowerArm', 'rightLowerArm',
+    'leftUpperArm', 'rightUpperArm',
+    'pelvis', 'torso', 'neck', 'head',
+  ];
+  const contours = Object.fromEntries(massNames.map(name => [name, {
+    startScale: vary(contourAmount * 0.45),
+    endScale: vary(contourAmount * 0.45),
+    leftCurve: randomBetween(-contourAmount, contourAmount),
+    rightCurve: randomBetween(-contourAmount, contourAmount),
+    direction: randomBetween(-contourAmount, contourAmount),
+  }]));
+
+  // Broad mass shifts stay correlated and restrained. Finer irregularity is
+  // stored per contour so redrawing an edited pose never causes visual jitter.
   return {
-    upperMass: randomBetween(0.9, 1.13),
-    lowerMass: randomBetween(0.88, 1.14),
-    limbMass: randomBetween(0.88, 1.16),
-    torsoTopBias: randomBetween(0.9, 1.14),
-    torsoBottomBias: randomBetween(0.82, 1.12),
-    headWidth: randomBetween(0.88, 1.12),
-    pelvisWidth: randomBetween(0.92, 1.12),
+    upperMass: vary(distributionAmount),
+    lowerMass: vary(distributionAmount),
+    limbMass: vary(distributionAmount * 0.8),
+    torsoTopBias: vary(contourAmount * 0.7),
+    torsoBottomBias: vary(contourAmount * 0.55),
+    headWidth: vary(distributionAmount * 0.8),
+    pelvisWidth: vary(contourAmount * 0.65),
+    contours,
   };
 }
 
@@ -539,30 +559,84 @@ function buildBodyMasses(proportions, skeleton, variation, language) {
   const limbLowerScale = clamp(Math.sqrt(pelvisScale), 0.65, 1.45);
   const torsoTopWidth = 176 * torsoScale * proportions.shoulderWidth
     * variation.upperMass * variation.torsoTopBias * contourFullness * bias.upper;
-  const torsoBottomWidth = 132 * torsoScale
-    * variation.lowerMass * variation.torsoBottomBias * contourFullness * bias.upper;
   const pelvisWidth = 142 * pelvisScale
     * variation.lowerMass * variation.pelvisWidth * contourFullness * bias.lower;
+  const torsoBottomBiasScale = 1 + (bias.upper - 1) * 0.45;
+  const rawTorsoBottomWidth = 132 * torsoScale
+    * variation.lowerMass * variation.torsoBottomBias * contourFullness * torsoBottomBiasScale;
+  const rhythmBlend = { top: 0.22, balanced: 0.38, bottom: 0.52 }[language.massBias] ?? 0.38;
+  const torsoBottomWidth = rawTorsoBottomWidth * (1 - rhythmBlend)
+    + pelvisWidth * rhythmBlend;
+  const pelvisTopWidth = torsoBottomWidth * 0.45 + pelvisWidth * 0.55;
   const headWidth = 72 * proportions.headSize * variation.headWidth;
   const neckWidth = Math.max(18, Math.min(headWidth * 0.52, torsoTopWidth * 0.28));
   const armWidth = 50 * limbUpperScale * variation.limbMass * contourFullness * bias.upper;
   const elbowWidth = 40 * limbUpperScale * variation.limbMass * contourFullness * bias.upper;
   const thighWidth = 76 * limbLowerScale * variation.lowerMass * contourFullness * bias.lower;
   const kneeWidth = 50 * limbLowerScale * variation.limbMass * contourFullness * bias.lower;
+  const massOptions = (name, options = {}) => ({
+    contour: variation.contours[name],
+    ...options,
+  });
 
   return [
-    makeMass('leftLowerLeg', skeleton.leftKnee, skeleton.leftAnkle, kneeWidth, kneeWidth * 0.58, 'toEnd', { lockStartWidth: true, jointOverlap: true }),
-    makeMass('rightLowerLeg', skeleton.rightKnee, skeleton.rightAnkle, kneeWidth, kneeWidth * 0.58, 'toEnd', { lockStartWidth: true, jointOverlap: true }),
-    makeMass('leftUpperLeg', skeleton.leftHip, skeleton.leftKnee, thighWidth, kneeWidth, 'toEnd', { lockEndWidth: true, jointOverlap: true }),
-    makeMass('rightUpperLeg', skeleton.rightHip, skeleton.rightKnee, thighWidth, kneeWidth, 'toEnd', { lockEndWidth: true, jointOverlap: true }),
-    makeMass('leftLowerArm', skeleton.leftElbow, skeleton.leftWrist, elbowWidth, elbowWidth * 0.58, 'toEnd', { lockStartWidth: true, jointOverlap: true }),
-    makeMass('rightLowerArm', skeleton.rightElbow, skeleton.rightWrist, elbowWidth, elbowWidth * 0.58, 'toEnd', { lockStartWidth: true, jointOverlap: true }),
-    makeMass('leftUpperArm', skeleton.leftShoulder, skeleton.leftElbow, armWidth, elbowWidth, 'toEnd', { lockEndWidth: true, jointOverlap: true }),
-    makeMass('rightUpperArm', skeleton.rightShoulder, skeleton.rightElbow, armWidth, elbowWidth, 'toEnd', { lockEndWidth: true, jointOverlap: true }),
-    makeMass('pelvis', skeleton.pelvisTop, skeleton.pelvisBottom, pelvisWidth * 0.9, pelvisWidth, 'toStart'),
-    makeMass('torso', skeleton.neckAnchor, skeleton.torsoBottom, torsoTopWidth, torsoBottomWidth),
-    makeMass('neck', skeleton.headBottom, skeleton.neckAnchor, neckWidth, neckWidth * 1.12, 'toStart', { jointOverlap: true }),
-    makeMass('head', skeleton.headTop, skeleton.headBottom, headWidth, headWidth * 0.9),
+    makeMass(
+      'leftLowerLeg', skeleton.leftKnee, skeleton.leftAnkle,
+      kneeWidth, kneeWidth * 0.58, 'toEnd',
+      massOptions('leftLowerLeg', { lockStartWidth: true, jointOverlap: true }),
+    ),
+    makeMass(
+      'rightLowerLeg', skeleton.rightKnee, skeleton.rightAnkle,
+      kneeWidth, kneeWidth * 0.58, 'toEnd',
+      massOptions('rightLowerLeg', { lockStartWidth: true, jointOverlap: true }),
+    ),
+    makeMass(
+      'leftUpperLeg', skeleton.leftHip, skeleton.leftKnee,
+      thighWidth, kneeWidth, 'toEnd',
+      massOptions('leftUpperLeg', { lockEndWidth: true, jointOverlap: true }),
+    ),
+    makeMass(
+      'rightUpperLeg', skeleton.rightHip, skeleton.rightKnee,
+      thighWidth, kneeWidth, 'toEnd',
+      massOptions('rightUpperLeg', { lockEndWidth: true, jointOverlap: true }),
+    ),
+    makeMass(
+      'leftLowerArm', skeleton.leftElbow, skeleton.leftWrist,
+      elbowWidth, elbowWidth * 0.58, 'toEnd',
+      massOptions('leftLowerArm', { lockStartWidth: true, jointOverlap: true }),
+    ),
+    makeMass(
+      'rightLowerArm', skeleton.rightElbow, skeleton.rightWrist,
+      elbowWidth, elbowWidth * 0.58, 'toEnd',
+      massOptions('rightLowerArm', { lockStartWidth: true, jointOverlap: true }),
+    ),
+    makeMass(
+      'leftUpperArm', skeleton.leftShoulder, skeleton.leftElbow,
+      armWidth, elbowWidth, 'toEnd',
+      massOptions('leftUpperArm', { lockEndWidth: true, jointOverlap: true }),
+    ),
+    makeMass(
+      'rightUpperArm', skeleton.rightShoulder, skeleton.rightElbow,
+      armWidth, elbowWidth, 'toEnd',
+      massOptions('rightUpperArm', { lockEndWidth: true, jointOverlap: true }),
+    ),
+    makeMass(
+      'pelvis', skeleton.pelvisTop, skeleton.pelvisBottom,
+      pelvisTopWidth, pelvisWidth, 'toStart', massOptions('pelvis'),
+    ),
+    makeMass(
+      'torso', skeleton.neckAnchor, skeleton.torsoBottom,
+      torsoTopWidth, torsoBottomWidth, 'toEnd', massOptions('torso'),
+    ),
+    makeMass(
+      'neck', skeleton.headBottom, skeleton.neckAnchor,
+      neckWidth, neckWidth * 1.12, 'toStart',
+      massOptions('neck', { jointOverlap: true }),
+    ),
+    makeMass(
+      'head', skeleton.headTop, skeleton.headBottom,
+      headWidth, headWidth * 0.9, 'toEnd', massOptions('head'),
+    ),
   ];
 }
 
@@ -575,7 +649,7 @@ function getMassBounds(masses) {
   masses.forEach(mass => {
     // Rounded high-intensity caps can extend farther along a mass axis than
     // the original neutral contour, so keep a conservative framing radius.
-    const radius = Math.max(mass.startWidth, mass.endWidth) * 0.78;
+    const radius = Math.max(mass.startWidth, mass.endWidth) * 0.84;
     [mass.start, mass.end].forEach(point => {
       minX = Math.min(minX, point.x - radius);
       minY = Math.min(minY, point.y - radius);
@@ -619,6 +693,14 @@ function fitMassesToFrame(masses, transform = getFrameTransform(masses)) {
   }));
 }
 
+function getMassRegion(name) {
+  if (name === 'torso') return 'torso';
+  if (name === 'pelvis') return 'pelvis';
+  if (name === 'head') return 'head';
+  if (name === 'neck') return 'neck';
+  return 'limb';
+}
+
 function getMassGeometry(mass, language) {
   const dx = mass.end.x - mass.start.x;
   const dy = mass.end.y - mass.start.y;
@@ -629,10 +711,29 @@ function getMassGeometry(mass, language) {
   let endWidth = mass.endWidth;
   const sharedStartWidth = startWidth;
   const sharedEndWidth = endWidth;
+  const contour = mass.contour || {
+    startScale: 1,
+    endScale: 1,
+    leftCurve: 0,
+    rightCurve: 0,
+    direction: 0,
+  };
+  const region = getMassRegion(mass.name);
+
+  if (!mass.lockStartWidth) startWidth *= contour.startScale;
+  if (!mass.lockEndWidth) endWidth *= contour.endScale;
+
+  const circleEvenness = {
+    torso: 0.2,
+    pelvis: 0.18,
+    limb: 0.1,
+    neck: 0.08,
+    head: 0.12,
+  }[region];
   const evenness = clamp(
-    language.squareStrength * 0.68 + language.circleStrength * 0.18,
+    language.squareStrength * 0.48 + language.circleStrength * circleEvenness,
     0,
-    0.9,
+    0.68,
   );
   const averageWidth = (startWidth + endWidth) / 2;
   startWidth += (averageWidth - startWidth) * evenness;
@@ -642,10 +743,17 @@ function getMassGeometry(mass, language) {
   if (language.taperDirection === 'top') taperDirection = 'toEnd';
   if (language.taperDirection === 'bottom') taperDirection = 'toStart';
 
+  const regionTaper = {
+    torso: 0.2,
+    pelvis: 0.16,
+    limb: 0.22,
+    neck: 0.12,
+    head: 0.08,
+  }[region];
   const taperAmount = clamp(
-    language.taper * (0.34 + language.triangleStrength * 0.3),
-    0.02,
-    0.78,
+    language.triangleStrength * regionTaper * (0.65 + language.rigidity * 0.35),
+    0,
+    0.32,
   );
   if (taperDirection === 'toEnd') {
     endWidth *= 1 - taperAmount;
@@ -659,10 +767,10 @@ function getMassGeometry(mass, language) {
   if (mass.lockEndWidth) endWidth = sharedEndWidth;
 
   const overlapRatio = clamp(
-    0.14 + language.circleStrength * 0.08 - language.squareStrength * 0.015
+    0.17 + language.circleStrength * 0.06 - language.squareStrength * 0.01
       + (mass.jointOverlap ? 0.05 : 0),
-    0.1,
-    0.27,
+    0.14,
+    0.28,
   );
   const overlap = Math.min(startWidth, endWidth) * overlapRatio;
   const start = {
@@ -684,6 +792,8 @@ function getMassGeometry(mass, language) {
     startRadius,
     endRadius,
     taperDirection,
+    contour,
+    region,
     startLeft: { x: start.x + normal.x * startRadius, y: start.y + normal.y * startRadius },
     startRight: { x: start.x - normal.x * startRadius, y: start.y - normal.y * startRadius },
     endLeft: { x: end.x + normal.x * endRadius, y: end.y + normal.y * endRadius },
@@ -691,7 +801,7 @@ function getMassGeometry(mass, language) {
   };
 }
 
-function traceInfluencedMass(geometry, language) {
+function traceProfiledMass(geometry, language) {
   const {
     axis,
     normal,
@@ -703,35 +813,51 @@ function traceInfluencedMass(geometry, language) {
     startRight,
     endLeft,
     endRight,
+    contour,
+    region,
   } = geometry;
-  const organicity = 1 - language.rigidity;
-  const sideBend = clamp(
-    0.015
-      + language.circleStrength * 0.16
-      + organicity * 0.035
-      - language.squareStrength * 0.03
-      - language.triangleStrength * 0.025,
-    0,
-    0.24,
-  );
+  const regionCurve = {
+    torso: 1.15,
+    pelvis: 1.08,
+    limb: 0.72,
+    neck: 0.55,
+    head: 1.2,
+  }[region];
+  const baseBend = 0.012
+    + language.circleStrength * 0.14 * regionCurve
+    + (1 - language.rigidity) * 0.025
+    - language.squareStrength * 0.022
+    - language.triangleStrength * 0.012;
+  const leftBend = clamp(baseBend + contour.leftCurve, -0.035, 0.26);
+  const rightBend = clamp(baseBend + contour.rightCurve, -0.035, 0.26);
   const capRound = clamp(
-    0.34
-      + language.circleStrength * 0.5
-      + organicity * 0.14
-      - language.squareStrength * 0.18
-      - language.triangleStrength * 0.14,
-    0.12,
-    1.05,
+    0.48
+      + language.circleStrength * 0.32
+      - language.squareStrength * (region === 'torso' || region === 'pelvis' ? 0.24 : 0.16)
+      - language.triangleStrength * 0.08
+      - language.rigidity * 0.06,
+    0.18,
+    0.94,
   );
   const length = Math.hypot(end.x - start.x, end.y - start.y);
+  const handleLength = clamp(
+    0.31 + language.circleStrength * 0.025 - language.squareStrength * 0.025,
+    0.26,
+    0.36,
+  );
+  const directionOffset = contour.direction * Math.min(startRadius, endRadius) * 0.75;
 
   ctx.beginPath();
   ctx.moveTo(startLeft.x, startLeft.y);
   ctx.bezierCurveTo(
-    startLeft.x + axis.x * length * 0.34 + normal.x * startRadius * sideBend,
-    startLeft.y + axis.y * length * 0.34 + normal.y * startRadius * sideBend,
-    endLeft.x - axis.x * length * 0.34 + normal.x * endRadius * sideBend,
-    endLeft.y - axis.y * length * 0.34 + normal.y * endRadius * sideBend,
+    startLeft.x + axis.x * length * handleLength
+      + normal.x * (startRadius * leftBend + directionOffset),
+    startLeft.y + axis.y * length * handleLength
+      + normal.y * (startRadius * leftBend + directionOffset),
+    endLeft.x - axis.x * length * handleLength
+      + normal.x * (endRadius * leftBend - directionOffset),
+    endLeft.y - axis.y * length * handleLength
+      + normal.y * (endRadius * leftBend - directionOffset),
     endLeft.x,
     endLeft.y,
   );
@@ -742,10 +868,14 @@ function traceInfluencedMass(geometry, language) {
     endRight.y,
   );
   ctx.bezierCurveTo(
-    endRight.x - axis.x * length * 0.34 - normal.x * endRadius * sideBend,
-    endRight.y - axis.y * length * 0.34 - normal.y * endRadius * sideBend,
-    startRight.x + axis.x * length * 0.34 - normal.x * startRadius * sideBend,
-    startRight.y + axis.y * length * 0.34 - normal.y * startRadius * sideBend,
+    endRight.x - axis.x * length * handleLength
+      - normal.x * (endRadius * rightBend + directionOffset),
+    endRight.y - axis.y * length * handleLength
+      - normal.y * (endRadius * rightBend + directionOffset),
+    startRight.x + axis.x * length * handleLength
+      - normal.x * (startRadius * rightBend - directionOffset),
+    startRight.y + axis.y * length * handleLength
+      - normal.y * (startRadius * rightBend - directionOffset),
     startRight.x,
     startRight.y,
   );
@@ -755,137 +885,133 @@ function traceInfluencedMass(geometry, language) {
     startLeft.x,
     startLeft.y,
   );
-  ctx.closePath();
-}
-
-function traceRoundedMass(geometry, language) {
-  const {
-    axis,
-    normal,
-    start,
-    end,
-    startRadius,
-    endRadius,
-    startLeft,
-    startRight,
-    endLeft,
-    endRight,
-  } = geometry;
-  const sideBend = language.roundness * 0.22;
-  const capRound = clamp(0.55 + language.roundness * 0.55, 0.55, 1.08);
-  const length = Math.hypot(end.x - start.x, end.y - start.y);
-
-  ctx.beginPath();
-  ctx.moveTo(startLeft.x, startLeft.y);
-  ctx.bezierCurveTo(
-    startLeft.x + axis.x * length * 0.34 + normal.x * startRadius * sideBend,
-    startLeft.y + axis.y * length * 0.34 + normal.y * startRadius * sideBend,
-    endLeft.x - axis.x * length * 0.34 + normal.x * endRadius * sideBend,
-    endLeft.y - axis.y * length * 0.34 + normal.y * endRadius * sideBend,
-    endLeft.x,
-    endLeft.y,
-  );
-  ctx.quadraticCurveTo(
-    end.x + axis.x * endRadius * capRound,
-    end.y + axis.y * endRadius * capRound,
-    endRight.x,
-    endRight.y,
-  );
-  ctx.bezierCurveTo(
-    endRight.x - axis.x * length * 0.34 - normal.x * endRadius * sideBend,
-    endRight.y - axis.y * length * 0.34 - normal.y * endRadius * sideBend,
-    startRight.x + axis.x * length * 0.34 - normal.x * startRadius * sideBend,
-    startRight.y + axis.y * length * 0.34 - normal.y * startRadius * sideBend,
-    startRight.x,
-    startRight.y,
-  );
-  ctx.quadraticCurveTo(
-    start.x - axis.x * startRadius * capRound,
-    start.y - axis.y * startRadius * capRound,
-    startLeft.x,
-    startLeft.y,
-  );
-  ctx.closePath();
-}
-
-function traceBlockMass(geometry, language) {
-  const {
-    axis,
-    startRadius,
-    endRadius,
-    startLeft,
-    startRight,
-    endLeft,
-    endRight,
-  } = geometry;
-  const bevelStrength = clamp(0.26 - language.squareStrength * 0.1, 0.08, 0.22);
-  const startBevel = startRadius * bevelStrength;
-  const endBevel = endRadius * bevelStrength;
-
-  ctx.beginPath();
-  ctx.moveTo(startLeft.x + axis.x * startBevel, startLeft.y + axis.y * startBevel);
-  ctx.lineTo(endLeft.x - axis.x * endBevel, endLeft.y - axis.y * endBevel);
-  ctx.lineTo(endLeft.x, endLeft.y);
-  ctx.lineTo(endRight.x, endRight.y);
-  ctx.lineTo(endRight.x - axis.x * endBevel, endRight.y - axis.y * endBevel);
-  ctx.lineTo(startRight.x + axis.x * startBevel, startRight.y + axis.y * startBevel);
-  ctx.lineTo(startRight.x, startRight.y);
-  ctx.lineTo(startLeft.x, startLeft.y);
-  ctx.closePath();
-}
-
-function traceAngularMass(geometry, language) {
-  const {
-    axis,
-    start,
-    end,
-    startRadius,
-    endRadius,
-    startLeft,
-    startRight,
-    endLeft,
-    endRight,
-    taperDirection,
-  } = geometry;
-  const pointStrength = 0.2 + clamp(language.triangleStrength, 0, 1.45) * 0.24;
-
-  ctx.beginPath();
-  if (taperDirection === 'toEnd') {
-    const endTip = {
-      x: end.x + axis.x * endRadius * pointStrength,
-      y: end.y + axis.y * endRadius * pointStrength,
-    };
-    ctx.moveTo(startLeft.x, startLeft.y);
-    ctx.lineTo(endLeft.x, endLeft.y);
-    ctx.lineTo(endTip.x, endTip.y);
-    ctx.lineTo(endRight.x, endRight.y);
-    ctx.lineTo(startRight.x, startRight.y);
-  } else {
-    const startTip = {
-      x: start.x - axis.x * startRadius * pointStrength,
-      y: start.y - axis.y * startRadius * pointStrength,
-    };
-    ctx.moveTo(startTip.x, startTip.y);
-    ctx.lineTo(startLeft.x, startLeft.y);
-    ctx.lineTo(endLeft.x, endLeft.y);
-    ctx.lineTo(endRight.x, endRight.y);
-    ctx.lineTo(startRight.x, startRight.y);
-  }
   ctx.closePath();
 }
 
 function traceMassPath(mass, language) {
   const geometry = getMassGeometry(mass, language);
+  traceProfiledMass(geometry, language);
+}
 
-  if (language.rigidity < 0.9) {
-    traceInfluencedMass(geometry, language);
-  } else if (language.dominant === 'square') {
-    traceBlockMass(geometry, language);
-  } else if (language.dominant === 'triangle') {
-    traceAngularMass(geometry, language);
-  } else {
-    traceRoundedMass(geometry, language);
+function projectPointOntoMassAxis(mass, point) {
+  const dx = mass.end.x - mass.start.x;
+  const dy = mass.end.y - mass.start.y;
+  const lengthSquared = Math.max(1, dx * dx + dy * dy);
+  const amount = clamp(
+    ((point.x - mass.start.x) * dx + (point.y - mass.start.y) * dy) / lengthSquared,
+    0,
+    1,
+  );
+
+  return {
+    x: mass.start.x + dx * amount,
+    y: mass.start.y + dy * amount,
+  };
+}
+
+function fillJointTransition(point, width) {
+  const radius = width * 0.48;
+
+  ctx.beginPath();
+  ctx.ellipse(point.x, point.y, radius, radius, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function fillTaperedTransition(start, end, startWidth, endWidth) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+
+  if (length < 0.5) {
+    fillJointTransition(start, Math.min(startWidth, endWidth));
+    return;
   }
+
+  const axis = { x: dx / length, y: dy / length };
+  const normal = { x: -axis.y, y: axis.x };
+  const startRadius = startWidth / 2;
+  const endRadius = endWidth / 2;
+  const startLeft = {
+    x: start.x + normal.x * startRadius,
+    y: start.y + normal.y * startRadius,
+  };
+  const startRight = {
+    x: start.x - normal.x * startRadius,
+    y: start.y - normal.y * startRadius,
+  };
+  const endLeft = {
+    x: end.x + normal.x * endRadius,
+    y: end.y + normal.y * endRadius,
+  };
+  const endRight = {
+    x: end.x - normal.x * endRadius,
+    y: end.y - normal.y * endRadius,
+  };
+
+  ctx.beginPath();
+  ctx.moveTo(startLeft.x, startLeft.y);
+  ctx.bezierCurveTo(
+    startLeft.x + axis.x * length * 0.35,
+    startLeft.y + axis.y * length * 0.35,
+    endLeft.x - axis.x * length * 0.35,
+    endLeft.y - axis.y * length * 0.35,
+    endLeft.x,
+    endLeft.y,
+  );
+  ctx.quadraticCurveTo(end.x, end.y, endRight.x, endRight.y);
+  ctx.bezierCurveTo(
+    endRight.x - axis.x * length * 0.35,
+    endRight.y - axis.y * length * 0.35,
+    startRight.x + axis.x * length * 0.35,
+    startRight.y + axis.y * length * 0.35,
+    startRight.x,
+    startRight.y,
+  );
+  ctx.quadraticCurveTo(start.x, start.y, startLeft.x, startLeft.y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawMassTransitions(masses) {
+  const byName = Object.fromEntries(masses.map(mass => [mass.name, mass]));
+  const bridgeToLimb = (parentName, childName) => {
+    const parent = byName[parentName];
+    const child = byName[childName];
+    const parentPoint = projectPointOntoMassAxis(parent, child.start);
+
+    fillTaperedTransition(
+      parentPoint,
+      child.start,
+      child.startWidth * 0.82,
+      child.startWidth * 0.94,
+    );
+  };
+  const bridgeJoint = (proximalName, distalName) => {
+    const proximal = byName[proximalName];
+    const distal = byName[distalName];
+    const width = Math.min(proximal.endWidth, distal.startWidth);
+
+    fillJointTransition(proximal.end, width);
+  };
+
+  fillTaperedTransition(
+    byName.torso.end,
+    byName.pelvis.start,
+    byName.torso.endWidth * 0.88,
+    byName.pelvis.startWidth * 0.88,
+  );
+
+  bridgeToLimb('torso', 'leftUpperArm');
+  bridgeToLimb('torso', 'rightUpperArm');
+  bridgeToLimb('pelvis', 'leftUpperLeg');
+  bridgeToLimb('pelvis', 'rightUpperLeg');
+
+  bridgeJoint('leftUpperArm', 'leftLowerArm');
+  bridgeJoint('rightUpperArm', 'rightLowerArm');
+  bridgeJoint('leftUpperLeg', 'leftLowerLeg');
+  bridgeJoint('rightUpperLeg', 'rightLowerLeg');
+  bridgeJoint('head', 'neck');
+  bridgeJoint('neck', 'torso');
 }
 
 function drawDebugOverlay(masses, language) {
@@ -993,6 +1119,7 @@ function renderSilhouette() {
     traceMassPath(mass, currentShapeLanguage);
     ctx.fill();
   });
+  drawMassTransitions(masses);
   ctx.restore();
 
   if (debugToggle && debugToggle.checked) {
@@ -1006,7 +1133,9 @@ function renderSilhouette() {
 
 function generateSilhouette() {
   currentShapeLanguage = getShapeLanguage();
-  currentMassVariation = currentShapeLanguage ? createMassVariation() : null;
+  currentMassVariation = currentShapeLanguage
+    ? createMassVariation(currentShapeLanguage)
+    : null;
   renderSilhouette();
 }
 
