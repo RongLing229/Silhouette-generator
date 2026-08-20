@@ -92,22 +92,58 @@ h2 {
 }
 
 .control-group {
-  display: grid;
-  gap: 0.65rem;
+  display: block;
   min-width: 0;
   margin: 0;
-  padding: 1rem;
+  padding: 0;
   border: 1px solid #d9d7d0;
   border-radius: 10px;
   background: #eeede8;
 }
 
-.control-group legend {
-  padding: 0 0.35rem;
+.control-section > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  list-style: none;
   font-size: 0.8rem;
   font-weight: 750;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+}
+
+.control-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.control-section > summary::after {
+  content: '+';
+  color: #77756e;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.control-section[open] > summary::after {
+  content: '\2212';
+}
+
+.control-section > summary:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.control-section > summary:focus-visible {
+  outline: 2px solid #3165d4;
+  outline-offset: -2px;
+}
+
+.control-section-content {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.15rem 1rem 1rem;
 }
 
 .group-hint {
@@ -349,6 +385,7 @@ button:active {
 }
 
 .canvas-stage {
+  position: relative;
   display: grid;
   flex: 1;
   min-height: 0;
@@ -365,6 +402,42 @@ button:active {
     linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.18) 75%);
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
   background-size: 16px 16px;
+}
+
+.symmetry-control {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.48rem 0.62rem;
+  border: 1px solid rgba(138, 136, 128, 0.55);
+  border-radius: 999px;
+  background: rgba(250, 249, 246, 0.94);
+  box-shadow: 0 4px 14px rgba(45, 43, 38, 0.1);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  backdrop-filter: blur(5px);
+}
+
+.symmetry-control input {
+  width: 0.95rem;
+  height: 0.95rem;
+  margin: 0;
+}
+
+.symmetry-state {
+  min-width: 1.65rem;
+  color: #292824;
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+}
+
+#symmetryToggle:not(:checked) + .symmetry-state {
+  color: #85827a;
 }
 
 #drawCanvas {

@@ -26,6 +26,8 @@ const legLengthControl = document.getElementById('legLengthControl');
 const shoulderControl = document.getElementById('shoulderControl');
 const debugToggle = document.getElementById('debugRegions');
 const editPoseToggle = document.getElementById('editPose');
+const symmetryToggle = document.getElementById('symmetryToggle');
+const symmetryState = document.getElementById('symmetryState');
 const randomiseProportionsButton = document.getElementById('randomiseProportions');
 const headSizeValue = document.getElementById('headSizeValue');
 const torsoLengthValue = document.getElementById('torsoLengthValue');
@@ -220,6 +222,20 @@ const editableJointNames = [
 const poseOffsets = Object.fromEntries(
   editableJointNames.map(name => [name, { x: 0, y: 0 }]),
 );
+const mirroredJointPairs = {
+  leftShoulder: 'rightShoulder',
+  rightShoulder: 'leftShoulder',
+  leftElbow: 'rightElbow',
+  rightElbow: 'leftElbow',
+  leftWrist: 'rightWrist',
+  rightWrist: 'leftWrist',
+  leftHip: 'rightHip',
+  rightHip: 'leftHip',
+  leftKnee: 'rightKnee',
+  rightKnee: 'leftKnee',
+  leftAnkle: 'rightAnkle',
+  rightAnkle: 'leftAnkle',
+};
 
 let currentMassVariation = null;
 let currentShapeLanguage = null;
@@ -1034,6 +1050,19 @@ function startPoseDrag(event) {
   event.preventDefault();
 }
 
+function mirrorPoseJoint(jointName) {
+  if (!symmetryToggle.checked) return;
+
+  const mirroredName = mirroredJointPairs[jointName];
+  if (!mirroredName) return;
+
+  // Default paired landmarks are mirrored around the character centre.
+  // Negating the horizontal offset and copying the vertical offset preserves
+  // that relationship without affecting centred head or spine landmarks.
+  poseOffsets[mirroredName].x = -poseOffsets[jointName].x;
+  poseOffsets[mirroredName].y = poseOffsets[jointName].y;
+}
+
 function continuePoseDrag(event) {
   if (!activePoseJoint || !currentPoseView) return;
 
@@ -1041,6 +1070,7 @@ function continuePoseDrag(event) {
   const scale = Math.max(0.001, currentPoseView.scale);
   poseOffsets[activePoseJoint].x += (pointerPosition.x - lastPointerPosition.x) / scale;
   poseOffsets[activePoseJoint].y += (pointerPosition.y - lastPointerPosition.y) / scale;
+  mirrorPoseJoint(activePoseJoint);
   lastPointerPosition = pointerPosition;
 
   renderSilhouette();
@@ -1056,6 +1086,10 @@ function endPoseDrag(event) {
   if (canvas.hasPointerCapture(event.pointerId)) {
     canvas.releasePointerCapture(event.pointerId);
   }
+}
+
+function updateSymmetryState() {
+  symmetryState.textContent = symmetryToggle.checked ? 'ON' : 'OFF';
 }
 
 proportionControls.forEach(control => {
@@ -1076,6 +1110,7 @@ proportionStyleControl.addEventListener('change', () => {
 });
 randomiseProportionsButton.addEventListener('click', randomiseProportions);
 generateButton.addEventListener('click', generateSilhouette);
+symmetryToggle.addEventListener('change', updateSymmetryState);
 editPoseToggle.addEventListener('change', () => {
   canvas.classList.toggle('pose-editing', editPoseToggle.checked);
   if (!editPoseToggle.checked) {
@@ -1089,5 +1124,6 @@ canvas.addEventListener('pointerdown', startPoseDrag);
 canvas.addEventListener('pointermove', continuePoseDrag);
 canvas.addEventListener('pointerup', endPoseDrag);
 canvas.addEventListener('pointercancel', endPoseDrag);
+updateSymmetryState();
 applyProportionStyle(proportionStyleControl.value);
 generateSilhouette();

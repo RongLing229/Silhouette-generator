@@ -15,9 +15,10 @@
           <p class="intro">Generate a strong, simple foundation to paint over and develop.</p>
         </header>
 
-        <fieldset class="control-group">
-          <legend>Shape language</legend>
-          <p class="group-hint">Weights blend into one consistent visual direction.</p>
+        <details class="control-group control-section" open>
+          <summary>Shape Language</summary>
+          <div class="control-section-content">
+            <p class="group-hint">Weights blend into one consistent visual direction.</p>
 
           <label class="shape-row">
             <span class="shape-choice">
@@ -61,7 +62,7 @@
             </span>
           </label>
 
-          <div class="language-options">
+            <div class="language-options">
             <label class="select-row" for="shapeIntensity">
               <span>Shape Intensity</span>
               <select id="shapeIntensity">
@@ -97,11 +98,13 @@
                 <option value="bottom">Wider at Bottom</option>
               </select>
             </label>
+            </div>
           </div>
-        </fieldset>
+        </details>
 
-        <fieldset class="control-group">
-          <legend>Proportions</legend>
+        <details class="control-group control-section" open>
+          <summary>Proportions</summary>
+          <div class="control-section-content">
 
           <label class="select-row" for="proportionStyle">
             <span>Proportion Style</span>
@@ -180,19 +183,25 @@
             </div>
           </div>
 
-          <button id="randomiseProportions" class="secondary-button" type="button">Randomise Proportions</button>
-        </fieldset>
+            <button id="randomiseProportions" class="secondary-button" type="button">Randomise Proportions</button>
+          </div>
+        </details>
 
-        <div class="display-options">
-          <label class="debug-row" for="debugRegions">
-            <input type="checkbox" id="debugRegions">
-            <span>Show construction</span>
-          </label>
-          <label class="debug-row" for="editPose">
-            <input type="checkbox" id="editPose">
-            <span>Edit Pose</span>
-          </label>
-        </div>
+        <details class="control-group control-section">
+          <summary>Pose / Skeleton</summary>
+          <div class="control-section-content">
+            <div class="display-options">
+              <label class="debug-row" for="debugRegions">
+                <input type="checkbox" id="debugRegions">
+                <span>Show construction</span>
+              </label>
+              <label class="debug-row" for="editPose">
+                <input type="checkbox" id="editPose">
+                <span>Edit Pose</span>
+              </label>
+            </div>
+          </div>
+        </details>
 
         <button id="generateButton" class="primary-button" type="button">Generate Silhouette</button>
       </aside>
@@ -207,6 +216,11 @@
         </header>
 
         <div class="canvas-stage">
+          <label class="symmetry-control" for="symmetryToggle">
+            <span>Symmetry</span>
+            <input type="checkbox" id="symmetryToggle" role="switch" checked>
+            <span id="symmetryState" class="symmetry-state" aria-live="polite">ON</span>
+          </label>
           <canvas id="drawCanvas" width="600" height="700" aria-label="Generated full-body silhouette"></canvas>
         </div>
       </section>
