@@ -18,7 +18,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -187,6 +188,11 @@ select {
   border-radius: 6px;
   background: #faf9f6;
   font-size: 0.76rem;
+}
+
+#proportionStyle {
+  width: 10.5rem;
+  max-width: 58%;
 }
 
 input[type="checkbox"] {

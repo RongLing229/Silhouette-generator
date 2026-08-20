@@ -17,17 +17,27 @@ const trianglePercentage = document.getElementById('trianglePercentage');
 const circleRole = document.getElementById('circleRole');
 const squareRole = document.getElementById('squareRole');
 const triangleRole = document.getElementById('triangleRole');
-const heightControl = document.getElementById('heightControl');
-const bodyWidthControl = document.getElementById('bodyWidthControl');
+const proportionStyleControl = document.getElementById('proportionStyle');
+const headSizeControl = document.getElementById('headSizeControl');
+const torsoLengthControl = document.getElementById('torsoLengthControl');
+const torsoWidthControl = document.getElementById('torsoWidthControl');
+const pelvisWidthControl = document.getElementById('pelvisWidthControl');
+const legLengthControl = document.getElementById('legLengthControl');
 const shoulderControl = document.getElementById('shoulderControl');
 const debugToggle = document.getElementById('debugRegions');
 const editPoseToggle = document.getElementById('editPose');
 const randomiseProportionsButton = document.getElementById('randomiseProportions');
-const heightValue = document.getElementById('heightValue');
-const bodyMassValue = document.getElementById('bodyMassValue');
+const headSizeValue = document.getElementById('headSizeValue');
+const torsoLengthValue = document.getElementById('torsoLengthValue');
+const torsoWidthValue = document.getElementById('torsoWidthValue');
+const pelvisWidthValue = document.getElementById('pelvisWidthValue');
+const legLengthValue = document.getElementById('legLengthValue');
 const shoulderValue = document.getElementById('shoulderValue');
-const heightDescription = document.getElementById('heightDescription');
-const bodyMassDescription = document.getElementById('bodyMassDescription');
+const headSizeDescription = document.getElementById('headSizeDescription');
+const torsoLengthDescription = document.getElementById('torsoLengthDescription');
+const torsoWidthDescription = document.getElementById('torsoWidthDescription');
+const pelvisWidthDescription = document.getElementById('pelvisWidthDescription');
+const legLengthDescription = document.getElementById('legLengthDescription');
 const shoulderDescription = document.getElementById('shoulderDescription');
 
 function randomBetween(min, max) {
@@ -80,18 +90,42 @@ function updateShapeWeightFeedback() {
 
 const proportionControls = [
   {
-    input: heightControl,
-    numberInput: heightValue,
-    description: heightDescription,
-    labels: { veryLow: 'Very Short', low: 'Short', middle: 'Neutral', high: 'Tall', veryHigh: 'Very Tall' },
+    key: 'headSize',
+    input: headSizeControl,
+    numberInput: headSizeValue,
+    description: headSizeDescription,
+    labels: { veryLow: 'Very Small', low: 'Small', middle: 'Neutral', high: 'Large', veryHigh: 'Very Large' },
   },
   {
-    input: bodyWidthControl,
-    numberInput: bodyMassValue,
-    description: bodyMassDescription,
-    labels: { veryLow: 'Very Slim', low: 'Slim', middle: 'Neutral', high: 'Broad', veryHigh: 'Very Broad' },
+    key: 'torsoLength',
+    input: torsoLengthControl,
+    numberInput: torsoLengthValue,
+    description: torsoLengthDescription,
+    labels: { veryLow: 'Very Short', low: 'Short', middle: 'Neutral', high: 'Long', veryHigh: 'Very Long' },
   },
   {
+    key: 'torsoWidth',
+    input: torsoWidthControl,
+    numberInput: torsoWidthValue,
+    description: torsoWidthDescription,
+    labels: { veryLow: 'Very Narrow', low: 'Narrow', middle: 'Neutral', high: 'Wide', veryHigh: 'Very Wide' },
+  },
+  {
+    key: 'pelvisWidth',
+    input: pelvisWidthControl,
+    numberInput: pelvisWidthValue,
+    description: pelvisWidthDescription,
+    labels: { veryLow: 'Very Narrow', low: 'Narrow', middle: 'Neutral', high: 'Wide', veryHigh: 'Very Wide' },
+  },
+  {
+    key: 'legLength',
+    input: legLengthControl,
+    numberInput: legLengthValue,
+    description: legLengthDescription,
+    labels: { veryLow: 'Very Short', low: 'Short', middle: 'Neutral', high: 'Long', veryHigh: 'Very Long' },
+  },
+  {
+    key: 'shoulderWidth',
     input: shoulderControl,
     numberInput: shoulderValue,
     description: shoulderDescription,
@@ -100,8 +134,82 @@ const proportionControls = [
 ];
 
 const normalSliderRange = { min: 0.6, max: 1.4 };
-const safeRandomRange = { min: 0.75, max: 1.25 };
+// Styles provide a starting point and safe randomisation ranges only.
+// The individual controls remain the source of truth for generation.
+const proportionStyles = {
+  balanced: {
+    defaults: {
+      headSize: 0.9,
+      torsoLength: 0.95,
+      torsoWidth: 1.1,
+      pelvisWidth: 1,
+      legLength: 1.15,
+      shoulderWidth: 1.1,
+    },
+    ranges: {
+      headSize: [0.8, 1.05], torsoLength: [0.85, 1.1], torsoWidth: [0.9, 1.25],
+      pelvisWidth: [0.85, 1.15], legLength: [1, 1.3], shoulderWidth: [0.95, 1.25],
+    },
+  },
+  topHeavy: {
+    defaults: {
+      headSize: 0.85,
+      torsoLength: 1.05,
+      torsoWidth: 1.3,
+      pelvisWidth: 0.85,
+      legLength: 1,
+      shoulderWidth: 1.3,
+    },
+    ranges: {
+      headSize: [0.75, 0.95], torsoLength: [0.95, 1.2], torsoWidth: [1.15, 1.4],
+      pelvisWidth: [0.75, 1], legLength: [0.9, 1.15], shoulderWidth: [1.15, 1.4],
+    },
+  },
+  bottomHeavy: {
+    defaults: {
+      headSize: 0.95,
+      torsoLength: 0.9,
+      torsoWidth: 0.9,
+      pelvisWidth: 1.3,
+      legLength: 1.1,
+      shoulderWidth: 0.9,
+    },
+    ranges: {
+      headSize: [0.85, 1.1], torsoLength: [0.8, 1.05], torsoWidth: [0.75, 1.05],
+      pelvisWidth: [1.15, 1.4], legLength: [1, 1.25], shoulderWidth: [0.75, 1.05],
+    },
+  },
+  longLegged: {
+    defaults: {
+      headSize: 0.8,
+      torsoLength: 0.85,
+      torsoWidth: 1,
+      pelvisWidth: 0.9,
+      legLength: 1.4,
+      shoulderWidth: 1.05,
+    },
+    ranges: {
+      headSize: [0.7, 0.95], torsoLength: [0.75, 1], torsoWidth: [0.85, 1.15],
+      pelvisWidth: [0.8, 1.05], legLength: [1.25, 1.55], shoulderWidth: [0.9, 1.2],
+    },
+  },
+  compact: {
+    defaults: {
+      headSize: 1.15,
+      torsoLength: 0.75,
+      torsoWidth: 1.15,
+      pelvisWidth: 1.1,
+      legLength: 0.75,
+      shoulderWidth: 1.05,
+    },
+    ranges: {
+      headSize: [1, 1.3], torsoLength: [0.65, 0.9], torsoWidth: [1, 1.3],
+      pelvisWidth: [0.95, 1.3], legLength: [0.65, 0.9], shoulderWidth: [0.9, 1.2],
+    },
+  },
+};
 const editableJointNames = [
+  'neckAnchor', 'pelvisCenter',
   'leftShoulder', 'rightShoulder',
   'leftElbow', 'rightElbow',
   'leftWrist', 'rightWrist',
@@ -168,16 +276,31 @@ function updateFromNumber(control, commitValue = false) {
   updateProportionLabel(control, value);
 }
 
-function randomiseProportions() {
-  proportionControls.forEach(control => {
-    const step = Number.parseFloat(control.input.step);
-    const stepCount = Math.round((safeRandomRange.max - safeRandomRange.min) / step);
-    const randomStep = Math.floor(Math.random() * (stepCount + 1));
-    const value = safeRandomRange.min + randomStep * step;
+function setProportionValue(control, value) {
+  updateSliderRange(control, value);
+  control.input.value = value.toFixed(2);
+  updateFromSlider(control);
+}
 
-    updateSliderRange(control, value);
-    control.input.value = value.toFixed(2);
-    updateFromSlider(control);
+function applyProportionStyle(styleName) {
+  const style = proportionStyles[styleName] || proportionStyles.balanced;
+
+  proportionControls.forEach(control => {
+    setProportionValue(control, style.defaults[control.key]);
+  });
+}
+
+function randomiseProportions() {
+  const style = proportionStyles[proportionStyleControl.value] || proportionStyles.balanced;
+
+  proportionControls.forEach(control => {
+    const [minimum, maximum] = style.ranges[control.key];
+    const step = Number.parseFloat(control.input.step);
+    const stepCount = Math.round((maximum - minimum) / step);
+    const randomStep = Math.floor(Math.random() * (stepCount + 1));
+    const value = minimum + randomStep * step;
+
+    setProportionValue(control, value);
   });
 }
 
@@ -231,8 +354,8 @@ function getShapeLanguage() {
   };
 }
 
-function makeMass(name, start, end, startWidth, endWidth, taperDirection = 'toEnd') {
-  return { name, start, end, startWidth, endWidth, taperDirection };
+function makeMass(name, start, end, startWidth, endWidth, taperDirection = 'toEnd', options = {}) {
+  return { name, start, end, startWidth, endWidth, taperDirection, ...options };
 }
 
 function createMassVariation() {
@@ -247,36 +370,41 @@ function createMassVariation() {
   };
 }
 
-function buildDefaultSkeleton(modifiers) {
-  const hf = modifiers.height;
-  const bw = modifiers.bodyWidth;
-  const sh = modifiers.shoulder;
+function buildDefaultSkeleton(proportions) {
+  const headSize = proportions.headSize;
+  const torsoLengthScale = proportions.torsoLength;
+  const torsoWidthScale = proportions.torsoWidth;
+  const pelvisWidthScale = proportions.pelvisWidth;
+  const legLengthScale = proportions.legLength;
+  const shoulderWidthScale = proportions.shoulderWidth;
   const cx = canvas.width / 2;
   const top = 38;
 
-  const headHeight = 76 * hf;
-  const torsoLength = 180 * hf;
-  const baseShoulderWidth = 176 * bw * sh;
-  const pelvisHeight = 66 * hf;
-  const basePelvisWidth = 142 * bw;
+  const headHeight = 76 * headSize;
+  const torsoLength = 180 * torsoLengthScale;
+  const baseShoulderWidth = 176 * torsoWidthScale * shoulderWidthScale;
+  const pelvisHeight = 66;
+  const basePelvisWidth = 142 * pelvisWidthScale;
 
   const headTop = { x: cx, y: top };
-  const headBottom = { x: cx, y: top + headHeight };
-  const torsoTop = { x: cx, y: headBottom.y - 7 };
-  const torsoBottom = { x: cx, y: torsoTop.y + torsoLength };
+  const neckAnchor = { x: cx, y: top + headHeight - 7 };
+  const torsoBottom = { x: cx, y: neckAnchor.y + torsoLength };
   const pelvisTop = { x: cx, y: torsoBottom.y - 18 };
   const pelvisBottom = { x: cx, y: pelvisTop.y + pelvisHeight };
-  const neckBase = { x: cx, y: torsoTop.y + 5 * hf };
+  const pelvisCenter = {
+    x: cx,
+    y: (pelvisTop.y + pelvisBottom.y) / 2,
+  };
 
-  // Mirrored shoulder points sit below the neck base, giving the shoulder
+  // Mirrored shoulder points sit below the neck anchor, giving the shoulder
   // construction line a relaxed downward slope on both sides.
-  const shoulderY = torsoTop.y + 30 * hf;
+  const shoulderY = neckAnchor.y + 30 * clamp(torsoLengthScale, 0.7, 1.3);
   const shoulderHalfWidth = baseShoulderWidth * 0.44;
   const leftShoulder = { x: cx - shoulderHalfWidth, y: shoulderY };
   const rightShoulder = { x: cx + shoulderHalfWidth, y: shoulderY };
 
-  const upperArmLength = 118 * hf;
-  const lowerArmLength = 124 * hf;
+  const upperArmLength = 118;
+  const lowerArmLength = 124;
   const upperArmReach = 0.58;
   const upperArmDrop = 0.82;
   const leftElbow = {
@@ -301,8 +429,8 @@ function buildDefaultSkeleton(modifiers) {
   const hipHalfWidth = basePelvisWidth * 0.27;
   const leftHip = { x: pelvisBottom.x - hipHalfWidth, y: pelvisBottom.y - 12 };
   const rightHip = { x: pelvisBottom.x + hipHalfWidth, y: pelvisBottom.y - 12 };
-  const upperLegLength = 158 * hf;
-  const lowerLegLength = 166 * hf;
+  const upperLegLength = 158 * legLengthScale;
+  const lowerLegLength = 166 * legLengthScale;
   const kneeSpread = 0.08;
   const ankleSpread = 0.035;
   const leftKnee = {
@@ -324,12 +452,11 @@ function buildDefaultSkeleton(modifiers) {
 
   return {
     headTop,
-    headBottom,
-    torsoTop,
+    neckAnchor,
     torsoBottom,
     pelvisTop,
     pelvisBottom,
-    neckBase,
+    pelvisCenter,
     leftShoulder,
     rightShoulder,
     leftElbow,
@@ -346,13 +473,21 @@ function buildDefaultSkeleton(modifiers) {
 }
 
 function applyPoseOffsets(skeleton) {
-  const posedSkeleton = { ...skeleton };
+  const posedSkeleton = Object.fromEntries(
+    Object.entries(skeleton).map(([name, point]) => [name, { ...point }]),
+  );
 
-  editableJointNames.forEach(name => {
-    posedSkeleton[name] = {
-      x: skeleton[name].x + poseOffsets[name].x,
-      y: skeleton[name].y + poseOffsets[name].y,
-    };
+  // Moving the pelvis centre shifts the pelvis and hip anchors as one
+  // structural unit. Knees and ankles remain independent landmark edits.
+  const pelvisOffset = poseOffsets.pelvisCenter;
+  ['pelvisCenter', 'torsoBottom', 'pelvisTop', 'pelvisBottom', 'leftHip', 'rightHip'].forEach(name => {
+    posedSkeleton[name].x += pelvisOffset.x;
+    posedSkeleton[name].y += pelvisOffset.y;
+  });
+
+  editableJointNames.filter(name => name !== 'pelvisCenter').forEach(name => {
+    posedSkeleton[name].x += poseOffsets[name].x;
+    posedSkeleton[name].y += poseOffsets[name].y;
   });
 
   return posedSkeleton;
@@ -364,32 +499,37 @@ function getMassBiasScales(language) {
   return { upper: 1, lower: 1 };
 }
 
-function buildBodyMasses(modifiers, skeleton, variation, language) {
-  const bw = modifiers.bodyWidth;
-  const sh = modifiers.shoulder;
+function buildBodyMasses(proportions, skeleton, variation, language) {
   const bias = getMassBiasScales(language);
-  const fullness = 1 + language.circleStrength * 0.16 + language.squareStrength * 0.05;
-  const torsoTopWidth = 176 * bw * sh * variation.upperMass * variation.torsoTopBias * fullness * bias.upper;
-  const torsoBottomWidth = 132 * bw * variation.lowerMass * variation.torsoBottomBias * fullness * bias.upper;
-  const pelvisWidth = 142 * bw * variation.lowerMass * variation.pelvisWidth * fullness * bias.lower;
-  const headWidth = 72 * bw * variation.headWidth * (1 + language.circleStrength * 0.1);
-  const armWidth = 50 * bw * variation.limbMass * fullness * bias.upper;
-  const forearmWidth = 40 * bw * variation.limbMass * fullness * bias.upper;
-  const thighWidth = 76 * bw * variation.lowerMass * fullness * bias.lower;
-  const calfWidth = 54 * bw * variation.limbMass * fullness * bias.lower;
+  const contourFullness = 1 + language.circleStrength * 0.1 + language.squareStrength * 0.025;
+  const torsoScale = proportions.torsoWidth;
+  const pelvisScale = proportions.pelvisWidth;
+  const limbUpperScale = clamp(Math.sqrt(torsoScale), 0.65, 1.45);
+  const limbLowerScale = clamp(Math.sqrt(pelvisScale), 0.65, 1.45);
+  const torsoTopWidth = 176 * torsoScale * proportions.shoulderWidth
+    * variation.upperMass * variation.torsoTopBias * contourFullness * bias.upper;
+  const torsoBottomWidth = 132 * torsoScale
+    * variation.lowerMass * variation.torsoBottomBias * contourFullness * bias.upper;
+  const pelvisWidth = 142 * pelvisScale
+    * variation.lowerMass * variation.pelvisWidth * contourFullness * bias.lower;
+  const headWidth = 72 * proportions.headSize * variation.headWidth;
+  const armWidth = 50 * limbUpperScale * variation.limbMass * contourFullness * bias.upper;
+  const elbowWidth = 40 * limbUpperScale * variation.limbMass * contourFullness * bias.upper;
+  const thighWidth = 76 * limbLowerScale * variation.lowerMass * contourFullness * bias.lower;
+  const kneeWidth = 50 * limbLowerScale * variation.limbMass * contourFullness * bias.lower;
 
   return [
-    makeMass('leftLowerLeg', skeleton.leftKnee, skeleton.leftAnkle, calfWidth, calfWidth * 0.55),
-    makeMass('rightLowerLeg', skeleton.rightKnee, skeleton.rightAnkle, calfWidth * 1.02, calfWidth * 0.57),
-    makeMass('leftUpperLeg', skeleton.leftHip, skeleton.leftKnee, thighWidth, calfWidth * 0.92),
-    makeMass('rightUpperLeg', skeleton.rightHip, skeleton.rightKnee, thighWidth * 1.02, calfWidth * 0.94),
-    makeMass('leftLowerArm', skeleton.leftElbow, skeleton.leftWrist, forearmWidth, forearmWidth * 0.58),
-    makeMass('rightLowerArm', skeleton.rightElbow, skeleton.rightWrist, forearmWidth * 0.98, forearmWidth * 0.6),
-    makeMass('leftUpperArm', skeleton.leftShoulder, skeleton.leftElbow, armWidth, forearmWidth * 1.04),
-    makeMass('rightUpperArm', skeleton.rightShoulder, skeleton.rightElbow, armWidth * 1.02, forearmWidth * 1.02),
+    makeMass('leftLowerLeg', skeleton.leftKnee, skeleton.leftAnkle, kneeWidth, kneeWidth * 0.58, 'toEnd', { lockStartWidth: true, jointOverlap: true }),
+    makeMass('rightLowerLeg', skeleton.rightKnee, skeleton.rightAnkle, kneeWidth, kneeWidth * 0.58, 'toEnd', { lockStartWidth: true, jointOverlap: true }),
+    makeMass('leftUpperLeg', skeleton.leftHip, skeleton.leftKnee, thighWidth, kneeWidth, 'toEnd', { lockEndWidth: true, jointOverlap: true }),
+    makeMass('rightUpperLeg', skeleton.rightHip, skeleton.rightKnee, thighWidth, kneeWidth, 'toEnd', { lockEndWidth: true, jointOverlap: true }),
+    makeMass('leftLowerArm', skeleton.leftElbow, skeleton.leftWrist, elbowWidth, elbowWidth * 0.58, 'toEnd', { lockStartWidth: true, jointOverlap: true }),
+    makeMass('rightLowerArm', skeleton.rightElbow, skeleton.rightWrist, elbowWidth, elbowWidth * 0.58, 'toEnd', { lockStartWidth: true, jointOverlap: true }),
+    makeMass('leftUpperArm', skeleton.leftShoulder, skeleton.leftElbow, armWidth, elbowWidth, 'toEnd', { lockEndWidth: true, jointOverlap: true }),
+    makeMass('rightUpperArm', skeleton.rightShoulder, skeleton.rightElbow, armWidth, elbowWidth, 'toEnd', { lockEndWidth: true, jointOverlap: true }),
     makeMass('pelvis', skeleton.pelvisTop, skeleton.pelvisBottom, pelvisWidth * 0.9, pelvisWidth, 'toStart'),
-    makeMass('torso', skeleton.torsoTop, skeleton.torsoBottom, torsoTopWidth, torsoBottomWidth),
-    makeMass('head', skeleton.headTop, skeleton.headBottom, headWidth, headWidth * 0.9),
+    makeMass('torso', skeleton.neckAnchor, skeleton.torsoBottom, torsoTopWidth, torsoBottomWidth),
+    makeMass('head', skeleton.headTop, skeleton.neckAnchor, headWidth, headWidth * 0.9),
   ];
 }
 
@@ -454,6 +594,8 @@ function getMassGeometry(mass, language) {
   const normal = { x: -axis.y, y: axis.x };
   let startWidth = mass.startWidth;
   let endWidth = mass.endWidth;
+  const sharedStartWidth = startWidth;
+  const sharedEndWidth = endWidth;
   const evenness = clamp(
     language.squareStrength * 0.68 + language.circleStrength * 0.18,
     0,
@@ -478,8 +620,14 @@ function getMassGeometry(mass, language) {
     startWidth *= 1 - taperAmount;
   }
 
+  // Preserve one shared width at articulated joins after contour modifiers.
+  // This keeps elbows and knees continuous without introducing an IK system.
+  if (mass.lockStartWidth) startWidth = sharedStartWidth;
+  if (mass.lockEndWidth) endWidth = sharedEndWidth;
+
   const overlapRatio = clamp(
-    0.14 + language.circleStrength * 0.08 - language.squareStrength * 0.015,
+    0.14 + language.circleStrength * 0.08 - language.squareStrength * 0.015
+      + (mass.jointOverlap ? 0.05 : 0),
     0.1,
     0.27,
   );
@@ -740,13 +888,15 @@ function transformSkeleton(skeleton, transform) {
 
 function drawPoseEditor(skeleton) {
   const segments = [
-    ['neckBase', 'leftShoulder'],
-    ['neckBase', 'rightShoulder'],
+    ['neckAnchor', 'leftShoulder'],
+    ['neckAnchor', 'rightShoulder'],
+    ['neckAnchor', 'pelvisCenter'],
     ['leftShoulder', 'leftElbow'],
     ['leftElbow', 'leftWrist'],
     ['rightShoulder', 'rightElbow'],
     ['rightElbow', 'rightWrist'],
-    ['leftHip', 'rightHip'],
+    ['pelvisCenter', 'leftHip'],
+    ['pelvisCenter', 'rightHip'],
     ['leftHip', 'leftKnee'],
     ['leftKnee', 'leftAnkle'],
     ['rightHip', 'rightKnee'],
@@ -776,11 +926,14 @@ function drawPoseEditor(skeleton) {
   ctx.restore();
 }
 
-function getCurrentModifiers() {
+function getCurrentProportions() {
   return {
-    height: clamp(Number.parseFloat(heightControl.value) || 1, 0.3, 2),
-    bodyWidth: clamp(Number.parseFloat(bodyWidthControl.value) || 1, 0.3, 2),
-    shoulder: clamp(Number.parseFloat(shoulderControl.value) || 1, 0.3, 2),
+    headSize: clamp(Number.parseFloat(headSizeControl.value) || 1, 0.3, 2),
+    torsoLength: clamp(Number.parseFloat(torsoLengthControl.value) || 1, 0.3, 2),
+    torsoWidth: clamp(Number.parseFloat(torsoWidthControl.value) || 1, 0.3, 2),
+    pelvisWidth: clamp(Number.parseFloat(pelvisWidthControl.value) || 1, 0.3, 2),
+    legLength: clamp(Number.parseFloat(legLengthControl.value) || 1, 0.3, 2),
+    shoulderWidth: clamp(Number.parseFloat(shoulderControl.value) || 1, 0.3, 2),
   };
 }
 
@@ -792,9 +945,9 @@ function renderSilhouette() {
     return;
   }
 
-  const modifiers = getCurrentModifiers();
-  const skeleton = applyPoseOffsets(buildDefaultSkeleton(modifiers));
-  const rawMasses = buildBodyMasses(modifiers, skeleton, currentMassVariation, currentShapeLanguage);
+  const proportions = getCurrentProportions();
+  const skeleton = applyPoseOffsets(buildDefaultSkeleton(proportions));
+  const rawMasses = buildBodyMasses(proportions, skeleton, currentMassVariation, currentShapeLanguage);
   const frameTransform = getFrameTransform(rawMasses);
   const masses = fitMassesToFrame(rawMasses, frameTransform);
   const fittedSkeleton = transformSkeleton(skeleton, frameTransform);
@@ -900,6 +1053,9 @@ shapeWeightControls.forEach(control => {
 });
 updateShapeWeightFeedback();
 
+proportionStyleControl.addEventListener('change', () => {
+  applyProportionStyle(proportionStyleControl.value);
+});
 randomiseProportionsButton.addEventListener('click', randomiseProportions);
 generateButton.addEventListener('click', generateSilhouette);
 editPoseToggle.addEventListener('change', () => {
@@ -915,4 +1071,5 @@ canvas.addEventListener('pointerdown', startPoseDrag);
 canvas.addEventListener('pointermove', continuePoseDrag);
 canvas.addEventListener('pointerup', endPoseDrag);
 canvas.addEventListener('pointercancel', endPoseDrag);
+applyProportionStyle(proportionStyleControl.value);
 generateSilhouette();
