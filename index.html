@@ -47,18 +47,34 @@
         <fieldset class="control-group">
           <legend>Proportions</legend>
 
-          <label class="control-row" for="heightControl">
-            <span>Height</span>
-            <input type="number" id="heightControl" class="body-control" value="1" min="0.6" max="1.6" step="0.05">
-          </label>
-          <label class="control-row" for="bodyWidthControl">
-            <span>Body width</span>
-            <input type="number" id="bodyWidthControl" class="body-control" value="1" min="0.6" max="1.6" step="0.05">
-          </label>
-          <label class="control-row" for="shoulderControl">
-            <span>Shoulder width</span>
-            <input type="number" id="shoulderControl" class="body-control" value="1" min="0.6" max="1.6" step="0.05">
-          </label>
+          <div class="proportion-control">
+            <div class="proportion-heading">
+              <label for="heightControl">Height</label>
+              <output id="heightValue" for="heightControl">1.00</output>
+            </div>
+            <input type="range" id="heightControl" value="1" min="0.70" max="1.30" step="0.05" aria-describedby="heightDescription">
+            <span id="heightDescription" class="proportion-description">Neutral</span>
+          </div>
+
+          <div class="proportion-control">
+            <div class="proportion-heading">
+              <label for="bodyWidthControl">Body Mass</label>
+              <output id="bodyMassValue" for="bodyWidthControl">1.00</output>
+            </div>
+            <input type="range" id="bodyWidthControl" value="1" min="0.70" max="1.30" step="0.05" aria-describedby="bodyMassDescription">
+            <span id="bodyMassDescription" class="proportion-description">Neutral</span>
+          </div>
+
+          <div class="proportion-control">
+            <div class="proportion-heading">
+              <label for="shoulderControl">Shoulder Width</label>
+              <output id="shoulderValue" for="shoulderControl">1.00</output>
+            </div>
+            <input type="range" id="shoulderControl" value="1" min="0.70" max="1.30" step="0.05" aria-describedby="shoulderDescription">
+            <span id="shoulderDescription" class="proportion-description">Neutral</span>
+          </div>
+
+          <button id="randomiseProportions" class="secondary-button" type="button">Randomise Proportions</button>
         </fieldset>
 
         <label class="debug-row" for="debugRegions">
@@ -66,7 +82,7 @@
           <span>Show construction</span>
         </label>
 
-        <button id="generateButton" type="button">Generate silhouette</button>
+        <button id="generateButton" class="primary-button" type="button">Generate Silhouette</button>
       </aside>
 
       <section class="workspace" aria-label="Silhouette workspace">

@@ -11,6 +11,13 @@ const heightControl = document.getElementById('heightControl');
 const bodyWidthControl = document.getElementById('bodyWidthControl');
 const shoulderControl = document.getElementById('shoulderControl');
 const debugToggle = document.getElementById('debugRegions');
+const randomiseProportionsButton = document.getElementById('randomiseProportions');
+const heightValue = document.getElementById('heightValue');
+const bodyMassValue = document.getElementById('bodyMassValue');
+const shoulderValue = document.getElementById('shoulderValue');
+const heightDescription = document.getElementById('heightDescription');
+const bodyMassDescription = document.getElementById('bodyMassDescription');
+const shoulderDescription = document.getElementById('shoulderDescription');
 
 function randomBetween(min, max) {
   return min + Math.random() * (max - min);
@@ -18,6 +25,54 @@ function randomBetween(min, max) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+const proportionControls = [
+  {
+    input: heightControl,
+    valueDisplay: heightValue,
+    description: heightDescription,
+    labels: { low: 'Short', middle: 'Neutral', high: 'Tall' },
+  },
+  {
+    input: bodyWidthControl,
+    valueDisplay: bodyMassValue,
+    description: bodyMassDescription,
+    labels: { low: 'Slim', middle: 'Neutral', high: 'Broad' },
+  },
+  {
+    input: shoulderControl,
+    valueDisplay: shoulderValue,
+    description: shoulderDescription,
+    labels: { low: 'Narrow', middle: 'Neutral', high: 'Wide' },
+  },
+];
+
+function updateProportionControl(control) {
+  const value = Number.parseFloat(control.input.value);
+  control.valueDisplay.value = value.toFixed(2);
+  control.valueDisplay.textContent = value.toFixed(2);
+
+  if (value < 0.9) {
+    control.description.textContent = control.labels.low;
+  } else if (value > 1.1) {
+    control.description.textContent = control.labels.high;
+  } else {
+    control.description.textContent = control.labels.middle;
+  }
+}
+
+function randomiseProportions() {
+  proportionControls.forEach(control => {
+    const step = Number.parseFloat(control.input.step);
+    const minimum = Number.parseFloat(control.input.min) + step;
+    const maximum = Number.parseFloat(control.input.max) - step;
+    const stepCount = Math.round((maximum - minimum) / step);
+    const randomStep = Math.floor(Math.random() * (stepCount + 1));
+
+    control.input.value = (minimum + randomStep * step).toFixed(2);
+    updateProportionControl(control);
+  });
 }
 
 function getShapeLanguage() {
@@ -349,5 +404,11 @@ function generateSilhouette() {
   }
 }
 
+proportionControls.forEach(control => {
+  control.input.addEventListener('input', () => updateProportionControl(control));
+  updateProportionControl(control);
+});
+
+randomiseProportionsButton.addEventListener('click', randomiseProportions);
 generateButton.addEventListener('click', generateSilhouette);
 generateSilhouette();

@@ -107,7 +107,6 @@ h2 {
 }
 
 .shape-row,
-.control-row,
 .debug-row {
   display: flex;
   align-items: center;
@@ -130,6 +129,43 @@ input[type="checkbox"] {
   accent-color: #171717;
 }
 
+.proportion-control {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.35rem 0 0.65rem;
+  border-bottom: 1px solid #d7d5ce;
+}
+
+.proportion-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.proportion-heading output {
+  color: #35332f;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: #171717;
+  cursor: pointer;
+}
+
+.proportion-description {
+  min-height: 1em;
+  color: #77756e;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+}
+
 input[type="number"] {
   width: 4rem;
   padding: 0.4rem 0.5rem;
@@ -141,6 +177,7 @@ input[type="number"] {
 }
 
 input[type="number"]:focus-visible,
+input[type="range"]:focus-visible,
 button:focus-visible,
 input[type="checkbox"]:focus-visible {
   outline: 2px solid #3165d4;
@@ -154,7 +191,7 @@ input[type="checkbox"]:focus-visible {
 
 button {
   width: 100%;
-  margin-top: auto;
+  margin-top: 0;
   padding: 0.9rem 1.1rem;
   border: 0;
   border-radius: 8px;
@@ -171,6 +208,23 @@ button:hover {
 
 button:active {
   transform: translateY(1px);
+}
+
+.primary-button {
+  margin-top: auto;
+}
+
+.secondary-button {
+  margin-top: 0.25rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid #c7c5bd;
+  color: #292824;
+  background: #f8f7f3;
+  font-size: 0.8rem;
+}
+
+.secondary-button:hover {
+  background: #ffffff;
 }
 
 .workspace {
@@ -236,7 +290,7 @@ button:active {
     border-bottom: 1px solid #cfcec8;
   }
 
-  .control-panel button {
+  .primary-button {
     margin-top: 0.5rem;
   }
 
