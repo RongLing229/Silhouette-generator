@@ -209,7 +209,7 @@ const proportionStyles = {
   },
 };
 const editableJointNames = [
-  'neckAnchor', 'pelvisCenter',
+  'headAnchor', 'neckAnchor', 'pelvisCenter',
   'leftShoulder', 'rightShoulder',
   'leftElbow', 'rightElbow',
   'leftWrist', 'rightWrist',
@@ -387,7 +387,9 @@ function buildDefaultSkeleton(proportions) {
   const basePelvisWidth = 142 * pelvisWidthScale;
 
   const headTop = { x: cx, y: top };
-  const neckAnchor = { x: cx, y: top + headHeight - 7 };
+  const headBottom = { x: cx, y: top + headHeight };
+  const headAnchor = { x: cx, y: top + headHeight / 2 };
+  const neckAnchor = { x: cx, y: headBottom.y + 10 };
   const torsoBottom = { x: cx, y: neckAnchor.y + torsoLength };
   const pelvisTop = { x: cx, y: torsoBottom.y - 18 };
   const pelvisBottom = { x: cx, y: pelvisTop.y + pelvisHeight };
@@ -452,6 +454,8 @@ function buildDefaultSkeleton(proportions) {
 
   return {
     headTop,
+    headBottom,
+    headAnchor,
     neckAnchor,
     torsoBottom,
     pelvisTop,
@@ -485,10 +489,20 @@ function applyPoseOffsets(skeleton) {
     posedSkeleton[name].y += pelvisOffset.y;
   });
 
-  editableJointNames.filter(name => name !== 'pelvisCenter').forEach(name => {
-    posedSkeleton[name].x += poseOffsets[name].x;
-    posedSkeleton[name].y += poseOffsets[name].y;
+  // The head anchor is a translation control: both head endpoints move by
+  // the same amount, so Head Size remains entirely proportion-driven.
+  const headOffset = poseOffsets.headAnchor;
+  ['headAnchor', 'headTop', 'headBottom'].forEach(name => {
+    posedSkeleton[name].x += headOffset.x;
+    posedSkeleton[name].y += headOffset.y;
   });
+
+  editableJointNames
+    .filter(name => name !== 'headAnchor' && name !== 'pelvisCenter')
+    .forEach(name => {
+      posedSkeleton[name].x += poseOffsets[name].x;
+      posedSkeleton[name].y += poseOffsets[name].y;
+    });
 
   return posedSkeleton;
 }
@@ -513,6 +527,7 @@ function buildBodyMasses(proportions, skeleton, variation, language) {
   const pelvisWidth = 142 * pelvisScale
     * variation.lowerMass * variation.pelvisWidth * contourFullness * bias.lower;
   const headWidth = 72 * proportions.headSize * variation.headWidth;
+  const neckWidth = Math.max(18, Math.min(headWidth * 0.52, torsoTopWidth * 0.28));
   const armWidth = 50 * limbUpperScale * variation.limbMass * contourFullness * bias.upper;
   const elbowWidth = 40 * limbUpperScale * variation.limbMass * contourFullness * bias.upper;
   const thighWidth = 76 * limbLowerScale * variation.lowerMass * contourFullness * bias.lower;
@@ -529,7 +544,8 @@ function buildBodyMasses(proportions, skeleton, variation, language) {
     makeMass('rightUpperArm', skeleton.rightShoulder, skeleton.rightElbow, armWidth, elbowWidth, 'toEnd', { lockEndWidth: true, jointOverlap: true }),
     makeMass('pelvis', skeleton.pelvisTop, skeleton.pelvisBottom, pelvisWidth * 0.9, pelvisWidth, 'toStart'),
     makeMass('torso', skeleton.neckAnchor, skeleton.torsoBottom, torsoTopWidth, torsoBottomWidth),
-    makeMass('head', skeleton.headTop, skeleton.neckAnchor, headWidth, headWidth * 0.9),
+    makeMass('neck', skeleton.headBottom, skeleton.neckAnchor, neckWidth, neckWidth * 1.12, 'toStart', { jointOverlap: true }),
+    makeMass('head', skeleton.headTop, skeleton.headBottom, headWidth, headWidth * 0.9),
   ];
 }
 
@@ -888,6 +904,7 @@ function transformSkeleton(skeleton, transform) {
 
 function drawPoseEditor(skeleton) {
   const segments = [
+    ['headAnchor', 'neckAnchor'],
     ['neckAnchor', 'leftShoulder'],
     ['neckAnchor', 'rightShoulder'],
     ['neckAnchor', 'pelvisCenter'],
