@@ -407,25 +407,26 @@ function buildDefaultSkeleton(proportions) {
 
   const upperArmLength = 118;
   const lowerArmLength = 124;
-  const upperArmReach = 0.58;
-  const upperArmDrop = 0.82;
+  const armOutward = 0.5;
+  const armDrop = Math.sqrt(1 - armOutward * armOutward);
   const leftElbow = {
-    x: leftShoulder.x - upperArmLength * upperArmReach,
-    y: leftShoulder.y + upperArmLength * upperArmDrop,
+    x: leftShoulder.x - upperArmLength * armOutward,
+    y: leftShoulder.y + upperArmLength * armDrop,
   };
   const rightElbow = {
-    x: rightShoulder.x + upperArmLength * upperArmReach,
-    y: rightShoulder.y + upperArmLength * upperArmDrop,
+    x: rightShoulder.x + upperArmLength * armOutward,
+    y: rightShoulder.y + upperArmLength * armDrop,
   };
-  const forearmBend = 0.12;
-  const forearmDrop = Math.sqrt(1 - forearmBend * forearmBend);
+
+  // Continue the forearms along the same axis for a clean concept-art
+  // A-pose. The elbow and wrist landmarks remain independently editable.
   const leftWrist = {
-    x: leftElbow.x + lowerArmLength * forearmBend,
-    y: leftElbow.y + lowerArmLength * forearmDrop,
+    x: leftElbow.x - lowerArmLength * armOutward,
+    y: leftElbow.y + lowerArmLength * armDrop,
   };
   const rightWrist = {
-    x: rightElbow.x - lowerArmLength * forearmBend,
-    y: rightElbow.y + lowerArmLength * forearmDrop,
+    x: rightElbow.x + lowerArmLength * armOutward,
+    y: rightElbow.y + lowerArmLength * armDrop,
   };
 
   const hipHalfWidth = basePelvisWidth * 0.27;
