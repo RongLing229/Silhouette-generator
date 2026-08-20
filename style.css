@@ -122,6 +122,32 @@ h2 {
   gap: 0.55rem;
 }
 
+.language-options {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.35rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid #d7d5ce;
+}
+
+.select-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+}
+
+select {
+  max-width: 8.5rem;
+  padding: 0.4rem 1.7rem 0.4rem 0.5rem;
+  color: #191919;
+  border: 1px solid #c9c7c0;
+  border-radius: 6px;
+  background: #faf9f6;
+  font-size: 0.76rem;
+}
+
 input[type="checkbox"] {
   width: 1rem;
   height: 1rem;
@@ -187,6 +213,7 @@ input.proportion-number {
 
 input[type="number"]:focus-visible,
 input[type="range"]:focus-visible,
+select:focus-visible,
 button:focus-visible,
 input[type="checkbox"]:focus-visible {
   outline: 2px solid #3165d4;
@@ -196,6 +223,11 @@ input[type="checkbox"]:focus-visible {
 .debug-row {
   justify-content: flex-start;
   color: #5d5b55;
+}
+
+.display-options {
+  display: grid;
+  gap: 0.65rem;
 }
 
 button {
@@ -287,6 +319,15 @@ button:active {
   border-radius: 3px;
   background: #ffffff;
   box-shadow: 0 12px 30px rgba(45, 43, 38, 0.12);
+}
+
+#drawCanvas.pose-editing {
+  cursor: grab;
+  touch-action: none;
+}
+
+#drawCanvas.pose-dragging {
+  cursor: grabbing;
 }
 
 @media (max-width: 780px) {

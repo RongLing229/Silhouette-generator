@@ -42,6 +42,35 @@
             </span>
             <input type="number" id="weightTriangle" class="shape-weight" value="1" min="0" max="10" aria-label="Triangle weight">
           </label>
+
+          <div class="language-options">
+            <label class="select-row" for="shapeIntensity">
+              <span>Shape Intensity</span>
+              <select id="shapeIntensity">
+                <option value="0.55">Low</option>
+                <option value="1" selected>Medium</option>
+                <option value="1.45">High</option>
+              </select>
+            </label>
+
+            <label class="select-row" for="massBias">
+              <span>Mass Bias</span>
+              <select id="massBias">
+                <option value="top">Top Heavy</option>
+                <option value="balanced" selected>Balanced</option>
+                <option value="bottom">Bottom Heavy</option>
+              </select>
+            </label>
+
+            <label class="select-row" for="taperDirection">
+              <span>Taper Direction</span>
+              <select id="taperDirection">
+                <option value="top">Wider at Top</option>
+                <option value="neutral" selected>Neutral</option>
+                <option value="bottom">Wider at Bottom</option>
+              </select>
+            </label>
+          </div>
         </fieldset>
 
         <fieldset class="control-group">
@@ -83,10 +112,16 @@
           <button id="randomiseProportions" class="secondary-button" type="button">Randomise Proportions</button>
         </fieldset>
 
-        <label class="debug-row" for="debugRegions">
-          <input type="checkbox" id="debugRegions">
-          <span>Show construction</span>
-        </label>
+        <div class="display-options">
+          <label class="debug-row" for="debugRegions">
+            <input type="checkbox" id="debugRegions">
+            <span>Show construction</span>
+          </label>
+          <label class="debug-row" for="editPose">
+            <input type="checkbox" id="editPose">
+            <span>Edit Pose</span>
+          </label>
+        </div>
 
         <button id="generateButton" class="primary-button" type="button">Generate Silhouette</button>
       </aside>
