@@ -30,48 +30,86 @@ function clamp(value, min, max) {
 const proportionControls = [
   {
     input: heightControl,
-    valueDisplay: heightValue,
+    numberInput: heightValue,
     description: heightDescription,
-    labels: { low: 'Short', middle: 'Neutral', high: 'Tall' },
+    labels: { veryLow: 'Very Short', low: 'Short', middle: 'Neutral', high: 'Tall', veryHigh: 'Very Tall' },
   },
   {
     input: bodyWidthControl,
-    valueDisplay: bodyMassValue,
+    numberInput: bodyMassValue,
     description: bodyMassDescription,
-    labels: { low: 'Slim', middle: 'Neutral', high: 'Broad' },
+    labels: { veryLow: 'Very Slim', low: 'Slim', middle: 'Neutral', high: 'Broad', veryHigh: 'Very Broad' },
   },
   {
     input: shoulderControl,
-    valueDisplay: shoulderValue,
+    numberInput: shoulderValue,
     description: shoulderDescription,
-    labels: { low: 'Narrow', middle: 'Neutral', high: 'Wide' },
+    labels: { veryLow: 'Very Narrow', low: 'Narrow', middle: 'Neutral', high: 'Wide', veryHigh: 'Very Wide' },
   },
 ];
 
-function updateProportionControl(control) {
-  const value = Number.parseFloat(control.input.value);
-  control.valueDisplay.value = value.toFixed(2);
-  control.valueDisplay.textContent = value.toFixed(2);
+const normalSliderRange = { min: 0.6, max: 1.4 };
+const safeRandomRange = { min: 0.75, max: 1.25 };
 
-  if (value < 0.9) {
+function updateProportionLabel(control, value) {
+  if (value < normalSliderRange.min) {
+    control.description.textContent = control.labels.veryLow;
+  } else if (value < 0.9) {
     control.description.textContent = control.labels.low;
-  } else if (value > 1.1) {
+  } else if (value <= 1.1) {
+    control.description.textContent = control.labels.middle;
+  } else if (value <= normalSliderRange.max) {
     control.description.textContent = control.labels.high;
   } else {
-    control.description.textContent = control.labels.middle;
+    control.description.textContent = control.labels.veryHigh;
   }
+}
+
+function updateSliderRange(control, value) {
+  control.input.min = Math.min(normalSliderRange.min, value).toFixed(2);
+  control.input.max = Math.max(normalSliderRange.max, value).toFixed(2);
+}
+
+function updateFromSlider(control) {
+  const value = Number.parseFloat(control.input.value);
+  control.numberInput.value = value.toFixed(2);
+  updateProportionLabel(control, value);
+}
+
+function normaliseManualValue(control, value) {
+  const minimum = Number.parseFloat(control.numberInput.min);
+  const maximum = Number.parseFloat(control.numberInput.max);
+  const step = Number.parseFloat(control.numberInput.step);
+  const clampedValue = clamp(value, minimum, maximum);
+
+  return Math.round(clampedValue / step) * step;
+}
+
+function updateFromNumber(control, commitValue = false) {
+  const enteredValue = Number.parseFloat(control.numberInput.value);
+  if (!Number.isFinite(enteredValue)) return;
+
+  if (!commitValue && control.numberInput.validity && !control.numberInput.validity.valid) {
+    return;
+  }
+
+  const value = normaliseManualValue(control, enteredValue);
+  control.numberInput.value = value.toFixed(2);
+  updateSliderRange(control, value);
+  control.input.value = value.toFixed(2);
+  updateProportionLabel(control, value);
 }
 
 function randomiseProportions() {
   proportionControls.forEach(control => {
     const step = Number.parseFloat(control.input.step);
-    const minimum = Number.parseFloat(control.input.min) + step;
-    const maximum = Number.parseFloat(control.input.max) - step;
-    const stepCount = Math.round((maximum - minimum) / step);
+    const stepCount = Math.round((safeRandomRange.max - safeRandomRange.min) / step);
     const randomStep = Math.floor(Math.random() * (stepCount + 1));
+    const value = safeRandomRange.min + randomStep * step;
 
-    control.input.value = (minimum + randomStep * step).toFixed(2);
-    updateProportionControl(control);
+    updateSliderRange(control, value);
+    control.input.value = value.toFixed(2);
+    updateFromSlider(control);
   });
 }
 
@@ -385,9 +423,9 @@ function generateSilhouette() {
   if (!language) return;
 
   const modifiers = {
-    height: clamp(Number.parseFloat(heightControl.value) || 1, 0.6, 1.6),
-    bodyWidth: clamp(Number.parseFloat(bodyWidthControl.value) || 1, 0.6, 1.6),
-    shoulder: clamp(Number.parseFloat(shoulderControl.value) || 1, 0.6, 1.6),
+    height: clamp(Number.parseFloat(heightControl.value) || 1, 0.3, 2),
+    bodyWidth: clamp(Number.parseFloat(bodyWidthControl.value) || 1, 0.3, 2),
+    shoulder: clamp(Number.parseFloat(shoulderControl.value) || 1, 0.3, 2),
   };
   const masses = fitMassesToFrame(buildBodyMasses(modifiers));
 
@@ -405,8 +443,10 @@ function generateSilhouette() {
 }
 
 proportionControls.forEach(control => {
-  control.input.addEventListener('input', () => updateProportionControl(control));
-  updateProportionControl(control);
+  control.input.addEventListener('input', () => updateFromSlider(control));
+  control.numberInput.addEventListener('input', () => updateFromNumber(control));
+  control.numberInput.addEventListener('change', () => updateFromNumber(control, true));
+  updateFromSlider(control);
 });
 
 randomiseProportionsButton.addEventListener('click', randomiseProportions);

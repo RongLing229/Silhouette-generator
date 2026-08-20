@@ -145,13 +145,15 @@ input[type="checkbox"] {
   font-weight: 650;
 }
 
-.proportion-heading output {
-  color: #35332f;
-  font-size: 0.78rem;
-  font-variant-numeric: tabular-nums;
+.proportion-inputs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 input[type="range"] {
+  min-width: 0;
   width: 100%;
   margin: 0;
   accent-color: #171717;
@@ -164,6 +166,7 @@ input[type="range"] {
   font-size: 0.72rem;
   font-weight: 650;
   letter-spacing: 0.03em;
+  text-align: right;
 }
 
 input[type="number"] {
@@ -174,6 +177,12 @@ input[type="number"] {
   border-radius: 6px;
   background: #faf9f6;
   text-align: right;
+}
+
+input.proportion-number {
+  width: 4.5rem;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
 }
 
 input[type="number"]:focus-visible,

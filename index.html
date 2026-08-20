@@ -50,28 +50,34 @@
           <div class="proportion-control">
             <div class="proportion-heading">
               <label for="heightControl">Height</label>
-              <output id="heightValue" for="heightControl">1.00</output>
+              <span id="heightDescription" class="proportion-description">Neutral</span>
             </div>
-            <input type="range" id="heightControl" value="1" min="0.70" max="1.30" step="0.05" aria-describedby="heightDescription">
-            <span id="heightDescription" class="proportion-description">Neutral</span>
+            <div class="proportion-inputs">
+              <input type="range" id="heightControl" value="1" min="0.60" max="1.40" step="0.05" aria-describedby="heightDescription">
+              <input type="number" id="heightValue" class="proportion-number" value="1.00" min="0.30" max="2.00" step="0.05" aria-label="Precise height value">
+            </div>
           </div>
 
           <div class="proportion-control">
             <div class="proportion-heading">
               <label for="bodyWidthControl">Body Mass</label>
-              <output id="bodyMassValue" for="bodyWidthControl">1.00</output>
+              <span id="bodyMassDescription" class="proportion-description">Neutral</span>
             </div>
-            <input type="range" id="bodyWidthControl" value="1" min="0.70" max="1.30" step="0.05" aria-describedby="bodyMassDescription">
-            <span id="bodyMassDescription" class="proportion-description">Neutral</span>
+            <div class="proportion-inputs">
+              <input type="range" id="bodyWidthControl" value="1" min="0.60" max="1.40" step="0.05" aria-describedby="bodyMassDescription">
+              <input type="number" id="bodyMassValue" class="proportion-number" value="1.00" min="0.30" max="2.00" step="0.05" aria-label="Precise body mass value">
+            </div>
           </div>
 
           <div class="proportion-control">
             <div class="proportion-heading">
               <label for="shoulderControl">Shoulder Width</label>
-              <output id="shoulderValue" for="shoulderControl">1.00</output>
+              <span id="shoulderDescription" class="proportion-description">Neutral</span>
             </div>
-            <input type="range" id="shoulderControl" value="1" min="0.70" max="1.30" step="0.05" aria-describedby="shoulderDescription">
-            <span id="shoulderDescription" class="proportion-description">Neutral</span>
+            <div class="proportion-inputs">
+              <input type="range" id="shoulderControl" value="1" min="0.60" max="1.40" step="0.05" aria-describedby="shoulderDescription">
+              <input type="number" id="shoulderValue" class="proportion-number" value="1.00" min="0.30" max="2.00" step="0.05" aria-label="Precise shoulder width value">
+            </div>
           </div>
 
           <button id="randomiseProportions" class="secondary-button" type="button">Randomise Proportions</button>
