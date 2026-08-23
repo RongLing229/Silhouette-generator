@@ -443,6 +443,41 @@ function shuffleWithRandom(items, random) {
   return shuffled;
 }
 
+const accentShapeVariants = {
+  triangle: ['skewedTriangle', 'wedge', 'longShard', 'bluntTriangle', 'taperedHybrid'],
+  square: ['offsetRectangle', 'elongatedBlock', 'taperedBlock', 'steppedSlab', 'bevelledSquare'],
+  circle: ['oval', 'offCentreRound', 'roundedWedge', 'capsule', 'droplet'],
+};
+
+function createAccentShapeProfile(shape, random) {
+  const variants = accentShapeVariants[shape] || accentShapeVariants.circle;
+  const deformation = shape === 'triangle' ? 1.15 : shape === 'square' ? 0.9 : 0.72;
+
+  return {
+    variant: variants[Math.floor(random() * variants.length)],
+    stretchX: randomBetween(0.88, 1.18, random),
+    stretchY: randomBetween(0.86, 1.14, random),
+    skew: randomBetween(-0.16, 0.16, random) * deformation,
+    asymmetry: randomBetween(-0.12, 0.12, random) * deformation,
+    offsetX: randomBetween(-0.055, 0.055, random),
+    offsetY: randomBetween(-0.075, 0.075, random) * deformation,
+    apexOffset: randomBetween(-0.3, 0.3, random),
+    taper: randomBetween(-0.16, 0.16, random),
+    cornerCut: randomBetween(0.16, 0.28, random),
+    bulge: randomBetween(0.9, 1.1, random),
+    headSideBias: random() < 0.62
+      ? randomBetween(-0.58, 0.58, random)
+      : randomBetween(-0.12, 0.12, random),
+  };
+}
+
+function getAccentAnchorType(anchorName) {
+  if (anchorName === 'head') return 'head';
+  if (anchorName.includes('Shoulder')) return 'shoulder';
+  if (anchorName.includes('Elbow')) return 'elbow';
+  return 'knee';
+}
+
 function createAccentVariation(settings, random) {
   const candidates = shuffleWithRandom(getAccentCandidateGroups(settings), random);
   if (candidates.length === 0) return [];
@@ -453,19 +488,29 @@ function createAccentVariation(settings, random) {
   const placementCount = 1 + Math.floor(random() * maximum);
 
   return candidates.slice(0, placementCount).flatMap(anchorNames => {
+    const anchorType = getAccentAnchorType(anchorNames[0]);
+    const rotationRanges = { head: 22, shoulder: 34, elbow: 22, knee: 20 };
     const scale = randomBetween(settings.minimumScale, settings.maximumScale, random);
     const mode = settings.mode === 'mixed'
       ? (random() < 0.5 ? 'additive' : 'replace')
       : settings.mode;
-    const rotationOffset = randomBetween(-12, 12, random) * (Math.PI / 180);
+    const profile = createAccentShapeProfile(settings.shape, random);
+    const rotationOffset = randomBetween(
+      -rotationRanges[anchorType],
+      rotationRanges[anchorType],
+      random,
+    ) * (Math.PI / 180);
 
     return anchorNames.map((anchorName, index) => ({
       anchorName,
+      anchorType,
       shape: settings.shape,
+      profile,
       scale,
       mode,
       breakStrength: settings.breakStrength,
       breakFraction: settings.breakFraction,
+      mirrorSign: anchorName.startsWith('right') ? -1 : 1,
       rotationOffset: anchorNames.length === 2 && index === 1
         ? -rotationOffset
         : rotationOffset,
@@ -942,13 +987,23 @@ function getOutwardNormal(point, direction, centreX, fallbackX) {
 function getAccentRenderData(masses, skeleton, placements) {
   const byName = Object.fromEntries(masses.map(mass => [mass.name, mass]));
   const centreX = (skeleton.neckAnchor.x + skeleton.pelvisCenter.x) / 2;
-  const makeLimbGeometry = (point, direction, width, fallbackX, scaleBias) => ({
+  const makeLimbGeometry = (
+    point,
+    direction,
+    width,
+    fallbackX,
+    scaleBias,
+    shapeScaleX,
+    shapeScaleY,
+  ) => ({
     point,
     direction,
     outward: getOutwardNormal(point, direction, centreX, fallbackX),
     width,
     edgeDistance: width / 2,
     scaleBias,
+    shapeScaleX,
+    shapeScaleY,
   });
   const anchorGeometry = {
     head: () => {
@@ -966,6 +1021,8 @@ function getAccentRenderData(masses, skeleton, placements) {
           skeleton.headTop.y - skeleton.headAnchor.y,
         ) + byName.head.startWidth * 0.1,
         scaleBias: 0.9,
+        shapeScaleX: 1.08,
+        shapeScaleY: 0.94,
       };
     },
     leftShoulder: () => makeLimbGeometry(
@@ -974,6 +1031,8 @@ function getAccentRenderData(masses, skeleton, placements) {
       byName.leftUpperArm.startWidth,
       -1,
       1.1,
+      0.88,
+      1.16,
     ),
     rightShoulder: () => makeLimbGeometry(
       skeleton.rightShoulder,
@@ -981,6 +1040,8 @@ function getAccentRenderData(masses, skeleton, placements) {
       byName.rightUpperArm.startWidth,
       1,
       1.1,
+      0.88,
+      1.16,
     ),
     leftElbow: () => makeLimbGeometry(
       skeleton.leftElbow,
@@ -988,6 +1049,8 @@ function getAccentRenderData(masses, skeleton, placements) {
       (byName.leftUpperArm.endWidth + byName.leftLowerArm.startWidth) / 2,
       -1,
       0.95,
+      1.12,
+      0.9,
     ),
     rightElbow: () => makeLimbGeometry(
       skeleton.rightElbow,
@@ -995,6 +1058,8 @@ function getAccentRenderData(masses, skeleton, placements) {
       (byName.rightUpperArm.endWidth + byName.rightLowerArm.startWidth) / 2,
       1,
       0.95,
+      1.12,
+      0.9,
     ),
     leftKnee: () => makeLimbGeometry(
       skeleton.leftKnee,
@@ -1002,6 +1067,8 @@ function getAccentRenderData(masses, skeleton, placements) {
       (byName.leftUpperLeg.endWidth + byName.leftLowerLeg.startWidth) / 2,
       -1,
       1,
+      1.16,
+      0.92,
     ),
     rightKnee: () => makeLimbGeometry(
       skeleton.rightKnee,
@@ -1009,6 +1076,8 @@ function getAccentRenderData(masses, skeleton, placements) {
       (byName.rightUpperLeg.endWidth + byName.rightLowerLeg.startWidth) / 2,
       1,
       1,
+      1.16,
+      0.92,
     ),
   };
 
@@ -1017,9 +1086,32 @@ function getAccentRenderData(masses, skeleton, placements) {
     if (!resolveGeometry) return [];
 
     const geometry = resolveGeometry();
+    if (placement.anchorName === 'head') {
+      const side = { x: -geometry.outward.y, y: geometry.outward.x };
+      const sideAmount = placement.profile.headSideBias;
+      const adjustedDirection = getDirection(
+        { x: 0, y: 0 },
+        {
+          x: geometry.outward.x + side.x * sideAmount,
+          y: geometry.outward.y + side.y * sideAmount,
+        },
+      );
+      const sideBlend = clamp(Math.abs(sideAmount), 0, 1);
+
+      geometry.outward = adjustedDirection;
+      geometry.direction = adjustedDirection;
+      geometry.edgeDistance = geometry.edgeDistance * (1 - sideBlend)
+        + geometry.width * 0.52 * sideBlend;
+    }
+
     const size = geometry.width * placement.scale * geometry.scaleBias;
+    const outwardShapeRadius = size
+      * 0.5
+      * geometry.shapeScaleY
+      * placement.profile.stretchY;
     const centreOffset = geometry.edgeDistance
-      + size * (placement.breakFraction - 0.5);
+      + size * placement.breakFraction
+      - outwardShapeRadius;
     const maskAlongRadius = Math.min(size * 0.32, geometry.width * 0.48);
     const maskOutwardRadius = Math.min(size * 0.22, geometry.width * 0.34);
     const maskOffset = geometry.edgeDistance - maskOutwardRadius * 0.25;
@@ -1039,6 +1131,12 @@ function getAccentRenderData(masses, skeleton, placements) {
       size,
       angle: geometry.direction.angle + placement.rotationOffset,
       bodyAngle: geometry.direction.angle,
+      shapeScaleX: geometry.shapeScaleX,
+      shapeScaleY: geometry.shapeScaleY,
+      boundRadius: size * 0.85 * Math.max(
+        geometry.shapeScaleX * placement.profile.stretchX,
+        geometry.shapeScaleY * placement.profile.stretchY,
+      ),
       maskAlongRadius,
       maskOutwardRadius,
     }];
@@ -1064,7 +1162,7 @@ function getMassBounds(masses, accents = []) {
   });
 
   accents.forEach(accent => {
-    const radius = accent.size * 0.72;
+    const radius = accent.boundRadius;
     minX = Math.min(minX, accent.center.x - radius);
     minY = Math.min(minY, accent.center.y - radius);
     maxX = Math.max(maxX, accent.center.x + radius);
@@ -1102,6 +1200,7 @@ function transformAccents(accents, transform) {
     center: transformPoint(accent.center, transform),
     maskCenter: transformPoint(accent.maskCenter, transform),
     size: accent.size * transform.scale,
+    boundRadius: accent.boundRadius * transform.scale,
     maskAlongRadius: accent.maskAlongRadius * transform.scale,
     maskOutwardRadius: accent.maskOutwardRadius * transform.scale,
   }));
@@ -1479,25 +1578,178 @@ function drawMassTransitions(masses) {
   bridgeJoint('neck', 'torso');
 }
 
+function traceAccentPolygon(points, halfSize) {
+  ctx.moveTo(points[0][0] * halfSize, points[0][1] * halfSize);
+  points.slice(1).forEach(([x, y]) => ctx.lineTo(x * halfSize, y * halfSize));
+  ctx.closePath();
+}
+
+function traceTriangleAccent(profile, halfSize) {
+  const apex = profile.apexOffset;
+  const taper = profile.taper;
+
+  if (profile.variant === 'skewedTriangle') {
+    traceAccentPolygon([
+      [1.02, apex], [-0.82, -0.74 + taper], [-0.68, 0.82 + taper * 0.3],
+    ], halfSize);
+  } else if (profile.variant === 'wedge') {
+    traceAccentPolygon([
+      [1, -0.24 + apex * 0.35], [0.82, 0.34 + apex * 0.25],
+      [-0.78, 0.76], [-0.64, -0.72],
+    ], halfSize);
+  } else if (profile.variant === 'longShard') {
+    traceAccentPolygon([
+      [1.2, apex * 0.5], [-0.2, 0.52], [-0.86, 0.34 + taper],
+      [-0.68, -0.4 + taper], [0.1, -0.58],
+    ], halfSize);
+  } else if (profile.variant === 'bluntTriangle') {
+    traceAccentPolygon([
+      [0.88, -0.15 + apex * 0.4], [0.86, 0.18 + apex * 0.4],
+      [-0.72, 0.78], [-0.84, -0.66],
+    ], halfSize);
+  } else {
+    traceAccentPolygon([
+      [0.96, -0.24 + apex * 0.35], [0.72, 0.4 + apex * 0.2],
+      [-0.8, 0.7 + taper], [-0.68, -0.76 + taper],
+    ], halfSize);
+  }
+}
+
+function traceSquareAccent(profile, halfSize) {
+  const taper = profile.taper;
+
+  if (profile.variant === 'offsetRectangle') {
+    traceAccentPolygon([
+      [-0.92, -0.68], [0.78, -0.62 + taper],
+      [0.92, 0.66 + taper], [-0.72, 0.8],
+    ], halfSize);
+  } else if (profile.variant === 'elongatedBlock') {
+    traceAccentPolygon([
+      [-1.08, -0.56], [0.94, -0.62], [1.02, 0.54], [-1, 0.62],
+    ], halfSize);
+  } else if (profile.variant === 'taperedBlock') {
+    traceAccentPolygon([
+      [-0.92, -0.78], [0.94, -0.52 + taper],
+      [0.9, 0.5 + taper], [-0.82, 0.76],
+    ], halfSize);
+  } else if (profile.variant === 'steppedSlab') {
+    traceAccentPolygon([
+      [-0.96, -0.7], [0.24, -0.7], [0.3, -0.48],
+      [0.96, -0.44], [0.9, 0.62], [-0.92, 0.72],
+    ], halfSize);
+  } else {
+    const cut = profile.cornerCut;
+    traceAccentPolygon([
+      [-0.92 + cut, -0.78], [0.86 - cut, -0.72],
+      [0.92, -0.72 + cut], [0.88, 0.68 - cut],
+      [0.88 - cut, 0.74], [-0.84 + cut, 0.78],
+      [-0.92, 0.78 - cut], [-0.94, -0.78 + cut],
+    ], halfSize);
+  }
+}
+
+function traceCircleAccent(profile, halfSize) {
+  const bulge = profile.bulge;
+
+  if (profile.variant === 'oval') {
+    ctx.ellipse(0, 0, halfSize, halfSize * 0.82 * bulge, 0, 0, Math.PI * 2);
+  } else if (profile.variant === 'offCentreRound') {
+    ctx.moveTo(halfSize * 0.94, -halfSize * 0.08);
+    ctx.bezierCurveTo(
+      halfSize * 0.76, -halfSize * 0.78 * bulge,
+      halfSize * 0.04, -halfSize * 1.02 * bulge,
+      -halfSize * 0.68, -halfSize * 0.7,
+    );
+    ctx.bezierCurveTo(
+      -halfSize, -halfSize * 0.28,
+      -halfSize * 0.82, halfSize * 0.58,
+      -halfSize * 0.26, halfSize * 0.84 * bulge,
+    );
+    ctx.bezierCurveTo(
+      halfSize * 0.32, halfSize,
+      halfSize * 0.9, halfSize * 0.56,
+      halfSize * 0.94, -halfSize * 0.08,
+    );
+  } else if (profile.variant === 'roundedWedge') {
+    ctx.moveTo(halfSize, halfSize * profile.apexOffset * 0.35);
+    ctx.bezierCurveTo(
+      halfSize * 0.7, -halfSize * 0.42,
+      -halfSize * 0.38, -halfSize * 0.88 * bulge,
+      -halfSize * 0.82, -halfSize * 0.52,
+    );
+    ctx.bezierCurveTo(
+      -halfSize * 1.02, -halfSize * 0.18,
+      -halfSize * 0.9, halfSize * 0.52,
+      -halfSize * 0.48, halfSize * 0.7 * bulge,
+    );
+    ctx.bezierCurveTo(
+      halfSize * 0.08, halfSize * 0.9,
+      halfSize * 0.72, halfSize * 0.42,
+      halfSize, halfSize * profile.apexOffset * 0.35,
+    );
+  } else if (profile.variant === 'capsule') {
+    ctx.moveTo(-halfSize * 0.62, -halfSize * 0.58);
+    ctx.lineTo(halfSize * 0.56, -halfSize * 0.54);
+    ctx.bezierCurveTo(
+      halfSize * 1.08, -halfSize * 0.5,
+      halfSize * 1.06, halfSize * 0.48,
+      halfSize * 0.54, halfSize * 0.58,
+    );
+    ctx.lineTo(-halfSize * 0.64, halfSize * 0.62);
+    ctx.bezierCurveTo(
+      -halfSize * 1.08, halfSize * 0.54,
+      -halfSize * 1.04, -halfSize * 0.5,
+      -halfSize * 0.62, -halfSize * 0.58,
+    );
+  } else {
+    ctx.moveTo(halfSize * 1.04, halfSize * profile.apexOffset * 0.25);
+    ctx.bezierCurveTo(
+      halfSize * 0.48, -halfSize * 0.5,
+      -halfSize * 0.12, -halfSize * 0.9 * bulge,
+      -halfSize * 0.64, -halfSize * 0.62,
+    );
+    ctx.bezierCurveTo(
+      -halfSize * 1.02, -halfSize * 0.2,
+      -halfSize * 0.92, halfSize * 0.58,
+      -halfSize * 0.34, halfSize * 0.82 * bulge,
+    );
+    ctx.bezierCurveTo(
+      halfSize * 0.18, halfSize,
+      halfSize * 0.72, halfSize * 0.5,
+      halfSize * 1.04, halfSize * profile.apexOffset * 0.25,
+    );
+  }
+
+  ctx.closePath();
+}
+
 function drawAccentShape(accent) {
   const halfSize = accent.size / 2;
+  const profile = accent.profile;
 
   ctx.save();
   ctx.translate(accent.center.x, accent.center.y);
   ctx.rotate(accent.angle);
+  ctx.scale(
+    accent.shapeScaleX * profile.stretchX,
+    accent.shapeScaleY * profile.stretchY * accent.mirrorSign,
+  );
+  ctx.transform(
+    1,
+    profile.asymmetry,
+    profile.skew,
+    1,
+    profile.offsetX * halfSize,
+    profile.offsetY * halfSize,
+  );
   ctx.beginPath();
 
   if (accent.shape === 'circle') {
-    ctx.ellipse(0, 0, halfSize, halfSize * 0.88, 0, 0, Math.PI * 2);
+    traceCircleAccent(profile, halfSize);
   } else if (accent.shape === 'square') {
-    ctx.rect(-halfSize * 0.92, -halfSize * 0.82, halfSize * 1.84, halfSize * 1.64);
+    traceSquareAccent(profile, halfSize);
   } else {
-    // The point follows the local limb direction; this reads as a controlled
-    // directional hook without adding a repeated field of small spikes.
-    ctx.moveTo(halfSize, 0);
-    ctx.lineTo(-halfSize * 0.72, -halfSize * 0.82);
-    ctx.lineTo(-halfSize * 0.72, halfSize * 0.82);
-    ctx.closePath();
+    traceTriangleAccent(profile, halfSize);
   }
 
   ctx.fill();
