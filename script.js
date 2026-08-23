@@ -36,6 +36,7 @@ const accentAnchorElbow = document.getElementById('accentAnchorElbow');
 const accentAnchorKnee = document.getElementById('accentAnchorKnee');
 const maxAccentCountControl = document.getElementById('maxAccentCount');
 const accentModeControl = document.getElementById('accentMode');
+const silhouetteBreakStrengthControl = document.getElementById('silhouetteBreakStrength');
 const accentSymmetryToggle = document.getElementById('accentSymmetry');
 const accentSymmetryState = document.getElementById('accentSymmetryState');
 const accentScaleMinControl = document.getElementById('accentScaleMin');
@@ -361,12 +362,12 @@ function normaliseAccentScaleInputs() {
   const parsedMinimum = Number.parseFloat(accentScaleMinControl.value);
   const parsedMaximum = Number.parseFloat(accentScaleMaxControl.value);
   let minimum = clamp(
-    Number.isFinite(parsedMinimum) ? parsedMinimum : 0.55,
+    Number.isFinite(parsedMinimum) ? parsedMinimum : 0.8,
     minimumLimit,
     maximumLimit,
   );
   let maximum = clamp(
-    Number.isFinite(parsedMaximum) ? parsedMaximum : 0.8,
+    Number.isFinite(parsedMaximum) ? parsedMaximum : 1.8,
     minimumLimit,
     maximumLimit,
   );
@@ -382,6 +383,8 @@ function normaliseAccentScaleInputs() {
 
 function getAccentSettings() {
   const scale = normaliseAccentScaleInputs();
+  const breakFractions = { subtle: 0.26, medium: 0.48, strong: 0.7 };
+  const breakStrength = silhouetteBreakStrengthControl.value;
 
   return {
     shape: accentShapeTypeControl.value,
@@ -396,6 +399,8 @@ function getAccentSettings() {
     minimumScale: scale.minimum,
     maximumScale: scale.maximum,
     mode: accentModeControl.value,
+    breakStrength,
+    breakFraction: breakFractions[breakStrength] ?? breakFractions.medium,
   };
 }
 
@@ -459,6 +464,8 @@ function createAccentVariation(settings, random) {
       shape: settings.shape,
       scale,
       mode,
+      breakStrength: settings.breakStrength,
+      breakFraction: settings.breakFraction,
       rotationOffset: anchorNames.length === 2 && index === 1
         ? -rotationOffset
         : rotationOffset,
@@ -914,51 +921,95 @@ function getDirection(start, end) {
   };
 }
 
+function getOutwardNormal(point, direction, centreX, fallbackX) {
+  let outward = { x: -direction.y, y: direction.x };
+  const radialX = Math.abs(point.x - centreX) > 0.001
+    ? Math.sign(point.x - centreX)
+    : fallbackX;
+
+  if (outward.x * radialX < 0) {
+    outward = { x: -outward.x, y: -outward.y };
+  }
+
+  // Blend a small centreline-away component into the local contour normal.
+  // This stays stable for heavily edited or nearly horizontal limbs.
+  return getDirection(
+    { x: 0, y: 0 },
+    { x: outward.x * 0.78 + radialX * 0.22, y: outward.y * 0.78 },
+  );
+}
+
 function getAccentRenderData(masses, skeleton, placements) {
   const byName = Object.fromEntries(masses.map(mass => [mass.name, mass]));
+  const centreX = (skeleton.neckAnchor.x + skeleton.pelvisCenter.x) / 2;
+  const makeLimbGeometry = (point, direction, width, fallbackX, scaleBias) => ({
+    point,
+    direction,
+    outward: getOutwardNormal(point, direction, centreX, fallbackX),
+    width,
+    edgeDistance: width / 2,
+    scaleBias,
+  });
   const anchorGeometry = {
-    head: () => ({
-      point: skeleton.headAnchor,
-      direction: getDirection(skeleton.headAnchor, skeleton.headTop),
-      outward: getDirection(skeleton.headAnchor, skeleton.headTop),
-      width: (byName.head.startWidth + byName.head.endWidth) / 2,
-    }),
-    leftShoulder: () => ({
-      point: skeleton.leftShoulder,
-      direction: getDirection(skeleton.leftShoulder, skeleton.leftElbow),
-      outward: { x: -1, y: 0 },
-      width: byName.leftUpperArm.startWidth,
-    }),
-    rightShoulder: () => ({
-      point: skeleton.rightShoulder,
-      direction: getDirection(skeleton.rightShoulder, skeleton.rightElbow),
-      outward: { x: 1, y: 0 },
-      width: byName.rightUpperArm.startWidth,
-    }),
-    leftElbow: () => ({
-      point: skeleton.leftElbow,
-      direction: getDirection(skeleton.leftShoulder, skeleton.leftWrist),
-      outward: { x: -1, y: 0 },
-      width: (byName.leftUpperArm.endWidth + byName.leftLowerArm.startWidth) / 2,
-    }),
-    rightElbow: () => ({
-      point: skeleton.rightElbow,
-      direction: getDirection(skeleton.rightShoulder, skeleton.rightWrist),
-      outward: { x: 1, y: 0 },
-      width: (byName.rightUpperArm.endWidth + byName.rightLowerArm.startWidth) / 2,
-    }),
-    leftKnee: () => ({
-      point: skeleton.leftKnee,
-      direction: getDirection(skeleton.leftHip, skeleton.leftAnkle),
-      outward: { x: -1, y: 0 },
-      width: (byName.leftUpperLeg.endWidth + byName.leftLowerLeg.startWidth) / 2,
-    }),
-    rightKnee: () => ({
-      point: skeleton.rightKnee,
-      direction: getDirection(skeleton.rightHip, skeleton.rightAnkle),
-      outward: { x: 1, y: 0 },
-      width: (byName.rightUpperLeg.endWidth + byName.rightLowerLeg.startWidth) / 2,
-    }),
+    head: () => {
+      const direction = getDirection(skeleton.headAnchor, skeleton.headTop);
+      const width = (byName.head.startWidth + byName.head.endWidth) / 2;
+
+      return {
+        point: skeleton.headAnchor,
+        direction,
+        outward: direction,
+        width,
+        // Head placement begins at the top contour, not the central landmark.
+        edgeDistance: Math.hypot(
+          skeleton.headTop.x - skeleton.headAnchor.x,
+          skeleton.headTop.y - skeleton.headAnchor.y,
+        ) + byName.head.startWidth * 0.1,
+        scaleBias: 0.9,
+      };
+    },
+    leftShoulder: () => makeLimbGeometry(
+      skeleton.leftShoulder,
+      getDirection(skeleton.leftShoulder, skeleton.leftElbow),
+      byName.leftUpperArm.startWidth,
+      -1,
+      1.1,
+    ),
+    rightShoulder: () => makeLimbGeometry(
+      skeleton.rightShoulder,
+      getDirection(skeleton.rightShoulder, skeleton.rightElbow),
+      byName.rightUpperArm.startWidth,
+      1,
+      1.1,
+    ),
+    leftElbow: () => makeLimbGeometry(
+      skeleton.leftElbow,
+      getDirection(skeleton.leftShoulder, skeleton.leftWrist),
+      (byName.leftUpperArm.endWidth + byName.leftLowerArm.startWidth) / 2,
+      -1,
+      0.95,
+    ),
+    rightElbow: () => makeLimbGeometry(
+      skeleton.rightElbow,
+      getDirection(skeleton.rightShoulder, skeleton.rightWrist),
+      (byName.rightUpperArm.endWidth + byName.rightLowerArm.startWidth) / 2,
+      1,
+      0.95,
+    ),
+    leftKnee: () => makeLimbGeometry(
+      skeleton.leftKnee,
+      getDirection(skeleton.leftHip, skeleton.leftAnkle),
+      (byName.leftUpperLeg.endWidth + byName.leftLowerLeg.startWidth) / 2,
+      -1,
+      1,
+    ),
+    rightKnee: () => makeLimbGeometry(
+      skeleton.rightKnee,
+      getDirection(skeleton.rightHip, skeleton.rightAnkle),
+      (byName.rightUpperLeg.endWidth + byName.rightLowerLeg.startWidth) / 2,
+      1,
+      1,
+    ),
   };
 
   return placements.flatMap(placement => {
@@ -966,12 +1017,17 @@ function getAccentRenderData(masses, skeleton, placements) {
     if (!resolveGeometry) return [];
 
     const geometry = resolveGeometry();
-    const size = Math.max(10, geometry.width * placement.scale);
-    const centreOffset = size * (placement.mode === 'replace' ? 0.14 : 0.3);
-    const maskOffset = size * 0.24;
+    const size = geometry.width * placement.scale * geometry.scaleBias;
+    const centreOffset = geometry.edgeDistance
+      + size * (placement.breakFraction - 0.5);
+    const maskAlongRadius = Math.min(size * 0.32, geometry.width * 0.48);
+    const maskOutwardRadius = Math.min(size * 0.22, geometry.width * 0.34);
+    const maskOffset = geometry.edgeDistance - maskOutwardRadius * 0.25;
 
     return [{
       ...placement,
+      anchorPoint: geometry.point,
+      outward: geometry.outward,
       center: {
         x: geometry.point.x + geometry.outward.x * centreOffset,
         y: geometry.point.y + geometry.outward.y * centreOffset,
@@ -982,6 +1038,9 @@ function getAccentRenderData(masses, skeleton, placements) {
       },
       size,
       angle: geometry.direction.angle + placement.rotationOffset,
+      bodyAngle: geometry.direction.angle,
+      maskAlongRadius,
+      maskOutwardRadius,
     }];
   });
 }
@@ -1039,9 +1098,12 @@ function transformPoint(point, transform) {
 function transformAccents(accents, transform) {
   return accents.map(accent => ({
     ...accent,
+    anchorPoint: transformPoint(accent.anchorPoint, transform),
     center: transformPoint(accent.center, transform),
     maskCenter: transformPoint(accent.maskCenter, transform),
     size: accent.size * transform.scale,
+    maskAlongRadius: accent.maskAlongRadius * transform.scale,
+    maskOutwardRadius: accent.maskOutwardRadius * transform.scale,
   }));
 }
 
@@ -1454,9 +1516,9 @@ function drawAccents(accents) {
       ctx.ellipse(
         accent.maskCenter.x,
         accent.maskCenter.y,
-        accent.size * 0.25,
-        accent.size * 0.21,
-        accent.angle,
+        accent.maskAlongRadius,
+        accent.maskOutwardRadius,
+        accent.bodyAngle,
         0,
         Math.PI * 2,
       );
