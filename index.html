@@ -207,8 +207,33 @@
                 <option value="circle" selected>Circle</option>
                 <option value="square">Square</option>
                 <option value="triangle">Triangle</option>
+                <option value="custom">Custom</option>
               </select>
             </label>
+
+            <div id="customAccentControls" class="custom-accent-controls" hidden>
+              <label class="custom-upload-field" for="customAccentUpload">
+                <span>Upload Accent Shape</span>
+                <input
+                  type="file"
+                  id="customAccentUpload"
+                  accept="image/png,.png"
+                  aria-describedby="customAccentStatus"
+                >
+              </label>
+              <div class="custom-accent-feedback">
+                <canvas
+                  id="customAccentPreview"
+                  class="custom-accent-preview"
+                  width="72"
+                  height="72"
+                  aria-label="Custom accent preview"
+                ></canvas>
+                <p id="customAccentStatus" class="custom-accent-status" aria-live="polite">
+                  Upload a transparent PNG accent shape.
+                </p>
+              </div>
+            </div>
 
             <label class="debug-row accent-symmetry-row" for="inheritAccentShapeLanguage">
               <input type="checkbox" id="inheritAccentShapeLanguage" role="switch">

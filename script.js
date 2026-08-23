@@ -30,6 +30,11 @@ const editPoseToggle = document.getElementById('editPose');
 const symmetryToggle = document.getElementById('symmetryToggle');
 const symmetryState = document.getElementById('symmetryState');
 const accentShapeTypeControl = document.getElementById('accentShapeType');
+const customAccentControls = document.getElementById('customAccentControls');
+const customAccentUpload = document.getElementById('customAccentUpload');
+const customAccentPreview = document.getElementById('customAccentPreview');
+const customAccentPreviewContext = customAccentPreview.getContext('2d');
+const customAccentStatus = document.getElementById('customAccentStatus');
 const inheritAccentShapeLanguageToggle = document.getElementById('inheritAccentShapeLanguage');
 const inheritAccentShapeLanguageState = document.getElementById('inheritAccentShapeLanguageState');
 const accentAnchorHead = document.getElementById('accentAnchorHead');
@@ -277,6 +282,8 @@ const mirroredJointPairs = {
 let currentMassVariation = null;
 let currentShapeLanguage = null;
 let currentAccentVariation = [];
+let currentCustomAccentMotif = null;
+let customAccentUploadSequence = 0;
 let currentPoseView = null;
 let activePoseJoint = null;
 let lastPointerPosition = null;
@@ -358,6 +365,229 @@ function randomiseProportions() {
   });
 }
 
+function setCustomAccentStatus(message, state = 'idle') {
+  customAccentStatus.textContent = message;
+  customAccentStatus.dataset.state = state;
+}
+
+function clearCustomAccentPreview() {
+  customAccentPreviewContext.clearRect(
+    0,
+    0,
+    customAccentPreview.width,
+    customAccentPreview.height,
+  );
+}
+
+function drawCustomAccentPreview(motif) {
+  clearCustomAccentPreview();
+  const margin = 8;
+  const scale = Math.min(
+    (customAccentPreview.width - margin * 2) / motif.width,
+    (customAccentPreview.height - margin * 2) / motif.height,
+  );
+  const width = motif.width * scale;
+  const height = motif.height * scale;
+
+  customAccentPreviewContext.save();
+  customAccentPreviewContext.imageSmoothingEnabled = true;
+  customAccentPreviewContext.drawImage(
+    motif.canvas,
+    (customAccentPreview.width - width) / 2,
+    (customAccentPreview.height - height) / 2,
+    width,
+    height,
+  );
+  customAccentPreviewContext.restore();
+}
+
+function loadLocalImage(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('The PNG could not be decoded.'));
+    image.src = url;
+  });
+}
+
+function getBorderLuminance(pixelData, width, height) {
+  let total = 0;
+  let count = 0;
+  const addPixel = (x, y) => {
+    const index = (y * width + x) * 4;
+    const alpha = pixelData[index + 3] / 255;
+    if (alpha < 0.05) return;
+
+    total += (
+      pixelData[index] * 0.2126
+      + pixelData[index + 1] * 0.7152
+      + pixelData[index + 2] * 0.0722
+    ) / 255;
+    count += 1;
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    addPixel(x, 0);
+    addPixel(x, height - 1);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    addPixel(0, y);
+    addPixel(width - 1, y);
+  }
+
+  return count > 0 ? total / count : 1;
+}
+
+function normaliseCustomAccentImage(image, fileName) {
+  const maximumProcessingSize = 512;
+  const processingScale = Math.min(
+    1,
+    maximumProcessingSize / Math.max(image.naturalWidth, image.naturalHeight),
+  );
+  const width = Math.max(1, Math.round(image.naturalWidth * processingScale));
+  const height = Math.max(1, Math.round(image.naturalHeight * processingScale));
+  const sourceCanvas = document.createElement('canvas');
+  sourceCanvas.width = width;
+  sourceCanvas.height = height;
+  const sourceContext = sourceCanvas.getContext('2d', { willReadFrequently: true });
+  sourceContext.drawImage(image, 0, 0, width, height);
+  const sourceImage = sourceContext.getImageData(0, 0, width, height);
+  const pixelCount = width * height;
+  let transparentPixelCount = 0;
+
+  for (let index = 3; index < sourceImage.data.length; index += 4) {
+    if (sourceImage.data[index] < 250) transparentPixelCount += 1;
+  }
+
+  const useAlphaMask = transparentPixelCount / pixelCount > 0.001;
+  const borderLuminance = useAlphaMask
+    ? 1
+    : getBorderLuminance(sourceImage.data, width, height);
+  const mask = new Uint8ClampedArray(pixelCount);
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const pixelIndex = y * width + x;
+      const dataIndex = pixelIndex * 4;
+      const alpha = sourceImage.data[dataIndex + 3] / 255;
+      const luminance = (
+        sourceImage.data[dataIndex] * 0.2126
+        + sourceImage.data[dataIndex + 1] * 0.7152
+        + sourceImage.data[dataIndex + 2] * 0.0722
+      ) / 255;
+      const foreground = borderLuminance >= 0.5 ? 1 - luminance : luminance;
+      const maskStrength = useAlphaMask
+        ? alpha
+        : clamp((foreground - 0.06) / 0.88, 0, 1) * alpha;
+      const maskAlpha = Math.round(maskStrength * 255);
+      mask[pixelIndex] = maskAlpha;
+
+      if (maskAlpha >= 12) {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+  }
+
+  if (maxX < minX || maxY < minY) {
+    throw new Error('No visible shape was found in this PNG.');
+  }
+
+  const croppedWidth = maxX - minX + 1;
+  const croppedHeight = maxY - minY + 1;
+  const maskCanvas = document.createElement('canvas');
+  maskCanvas.width = croppedWidth;
+  maskCanvas.height = croppedHeight;
+  const maskContext = maskCanvas.getContext('2d');
+  const croppedImage = maskContext.createImageData(croppedWidth, croppedHeight);
+
+  for (let y = 0; y < croppedHeight; y += 1) {
+    for (let x = 0; x < croppedWidth; x += 1) {
+      const sourceIndex = (y + minY) * width + (x + minX);
+      const targetIndex = (y * croppedWidth + x) * 4;
+      croppedImage.data[targetIndex] = 17;
+      croppedImage.data[targetIndex + 1] = 17;
+      croppedImage.data[targetIndex + 2] = 17;
+      croppedImage.data[targetIndex + 3] = mask[sourceIndex];
+    }
+  }
+
+  maskContext.putImageData(croppedImage, 0, 0);
+  const maximumDimension = Math.max(croppedWidth, croppedHeight);
+
+  return {
+    canvas: maskCanvas,
+    width: croppedWidth,
+    height: croppedHeight,
+    scaleX: croppedWidth / maximumDimension,
+    scaleY: croppedHeight / maximumDimension,
+    sourceUsedAlpha: useAlphaMask,
+    fileName,
+  };
+}
+
+async function handleCustomAccentUpload(event) {
+  const uploadSequence = ++customAccentUploadSequence;
+  const [file] = event.target.files;
+  if (!file) return;
+
+  if (file.type !== 'image/png' && !file.name.toLowerCase().endsWith('.png')) {
+    currentCustomAccentMotif = null;
+    clearCustomAccentPreview();
+    setCustomAccentStatus('Please choose a PNG image.', 'error');
+    return;
+  }
+
+  if (file.size > 8 * 1024 * 1024) {
+    currentCustomAccentMotif = null;
+    clearCustomAccentPreview();
+    setCustomAccentStatus('Please choose a PNG smaller than 8 MB.', 'error');
+    return;
+  }
+
+  setCustomAccentStatus('Loading and normalising the uploaded shape…');
+  const objectUrl = URL.createObjectURL(file);
+
+  try {
+    const image = await loadLocalImage(objectUrl);
+    const motif = normaliseCustomAccentImage(image, file.name);
+    if (uploadSequence !== customAccentUploadSequence) return;
+
+    currentCustomAccentMotif = motif;
+    drawCustomAccentPreview(motif);
+    const maskDescription = motif.sourceUsedAlpha
+      ? 'alpha mask'
+      : 'black/white mask';
+    setCustomAccentStatus(
+      `Ready — ${motif.width} × ${motif.height}px ${maskDescription}.`,
+      'ready',
+    );
+  } catch (error) {
+    if (uploadSequence !== customAccentUploadSequence) return;
+
+    currentCustomAccentMotif = null;
+    clearCustomAccentPreview();
+    setCustomAccentStatus(error.message || 'The PNG could not be processed.', 'error');
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+function updateCustomAccentControls() {
+  const customSelected = accentShapeTypeControl.value === 'custom';
+  customAccentControls.hidden = !customSelected;
+
+  if (customSelected && !currentCustomAccentMotif) {
+    setCustomAccentStatus('Upload an accent shape first.', 'error');
+  }
+}
+
 function normaliseAccentScaleInputs() {
   const minimumLimit = Number.parseFloat(accentScaleMinControl.min);
   const maximumLimit = Number.parseFloat(accentScaleMinControl.max);
@@ -387,9 +617,15 @@ function getAccentSettings() {
   const scale = normaliseAccentScaleInputs();
   const breakFractions = { subtle: 0.26, medium: 0.48, strong: 0.7 };
   const breakStrength = silhouetteBreakStrengthControl.value;
+  const shape = accentShapeTypeControl.value;
+
+  if (shape === 'custom' && !currentCustomAccentMotif) {
+    setCustomAccentStatus('Upload an accent shape first.', 'error');
+  }
 
   return {
-    shape: accentShapeTypeControl.value,
+    shape,
+    customMotif: shape === 'custom' ? currentCustomAccentMotif : null,
     anchors: {
       head: accentAnchorHead.checked,
       shoulder: accentAnchorShoulder.checked,
@@ -439,6 +675,7 @@ const accentShapeVariants = {
   triangle: ['skewedTriangle', 'wedge', 'longShard', 'bluntTriangle', 'taperedHybrid'],
   square: ['offsetRectangle', 'elongatedBlock', 'taperedBlock', 'steppedSlab', 'bevelledSquare'],
   circle: ['oval', 'offCentreRound', 'roundedWedge', 'capsule', 'droplet'],
+  custom: ['uploadedMotif'],
 };
 
 const accentAnchorProfiles = {
@@ -496,11 +733,11 @@ const accentAnchorProfiles = {
   },
 };
 
-function applyInheritedShapeLanguage(profile, language) {
+function applyInheritedShapeLanguage(profile, language, influenceMultiplier = 1) {
   if (!language) return profile;
 
   const { circle, square, triangle } = language.shapeBlend;
-  const influence = clamp(language.intensity * 0.16, 0.08, 0.24);
+  const influence = clamp(language.intensity * 0.16, 0.08, 0.24) * influenceMultiplier;
   const softness = circle * influence;
   const bluntness = square * influence;
   const directionality = triangle * influence;
@@ -524,15 +761,54 @@ function applyInheritedShapeLanguage(profile, language) {
   };
 }
 
-function createAccentShapeProfile(shape, random, language, inheritShapeLanguage) {
+function createAccentShapeProfile(
+  shape,
+  random,
+  language,
+  inheritShapeLanguage,
+  customMotif = null,
+) {
   const variants = accentShapeVariants[shape] || accentShapeVariants.circle;
-  const deformation = shape === 'triangle' ? 1.15 : shape === 'square' ? 0.9 : 0.72;
+  const deformation = shape === 'triangle'
+    ? 1.15
+    : shape === 'square'
+      ? 0.9
+      : shape === 'custom'
+        ? 0.36
+        : 0.72;
   const contourScale = {
     clean: 0.68,
     natural: 1,
     expressive: 1.2,
   }[language?.contourVariationName] ?? 1;
   const variant = variants[Math.floor(random() * variants.length)];
+
+  if (shape === 'custom' && customMotif) {
+    const customProfile = {
+      variant,
+      attachmentRatioX: 0.22,
+      attachmentRatioY: 0.22,
+      stretchX: randomBetween(0.96, 1.05, random),
+      stretchY: randomBetween(0.95, 1.05, random),
+      skew: randomBetween(-0.05, 0.05, random) * contourScale,
+      asymmetry: randomBetween(-0.035, 0.035, random) * contourScale,
+      offsetX: randomBetween(-0.02, 0.02, random),
+      offsetY: randomBetween(-0.025, 0.025, random),
+      apexOffset: 0,
+      taper: randomBetween(-0.045, 0.045, random) * contourScale,
+      cornerCut: 0.2,
+      bulge: 1,
+      motifScaleX: customMotif.scaleX,
+      motifScaleY: customMotif.scaleY,
+      customMotif,
+      inheritedShapeLanguage: false,
+    };
+
+    return inheritShapeLanguage
+      ? applyInheritedShapeLanguage(customProfile, language, 0.45)
+      : customProfile;
+  }
+
   const attachmentRatios = {
     skewedTriangle: { x: 0.34, y: 0.32 },
     wedge: { x: 0.32, y: 0.32 },
@@ -566,6 +842,9 @@ function createAccentShapeProfile(shape, random, language, inheritShapeLanguage)
     taper: randomBetween(-0.16, 0.16, random) * contourScale,
     cornerCut: randomBetween(0.16, 0.28, random),
     bulge: randomBetween(0.9, 1.1, random),
+    motifScaleX: 1,
+    motifScaleY: 1,
+    customMotif: null,
     inheritedShapeLanguage: false,
   };
 
@@ -616,6 +895,8 @@ function chooseHeadAccentPlacement(random) {
 }
 
 function createAccentVariation(settings, random, language) {
+  if (settings.shape === 'custom' && !settings.customMotif) return [];
+
   const candidates = getAccentCandidateGroups(settings);
   if (candidates.length === 0) return [];
 
@@ -642,6 +923,7 @@ function createAccentVariation(settings, random, language) {
       random,
       language,
       settings.inheritShapeLanguage,
+      settings.customMotif,
     );
     const rotationOffset = randomBetween(
       -anchorProfile.rotationRange,
@@ -1255,22 +1537,41 @@ function buildValidatedAccent(placement, geometry, primaryMassWidth, acceptedAcc
   const minimumSize = geometry.width * anchorProfile.minimumScale;
   const maximumSize = primaryMassWidth * anchorProfile.maximumPrimaryMassRatio;
   let size = clamp(requestedSize, minimumSize, maximumSize);
-  const attachmentAxisScale = placement.anchorType === 'head'
-    ? anchorProfile.shapeScaleX * placement.profile.stretchX
-    : anchorProfile.shapeScaleY * placement.profile.stretchY;
+  const localShapeScaleX = anchorProfile.shapeScaleX
+    * placement.profile.stretchX
+    * (placement.profile.motifScaleX ?? 1);
+  const localShapeScaleY = anchorProfile.shapeScaleY
+    * placement.profile.stretchY
+    * (placement.profile.motifScaleY ?? 1);
+  const rotationCos = Math.abs(Math.cos(placement.rotationOffset));
+  const rotationSin = Math.abs(Math.sin(placement.rotationOffset));
+  const attachmentAxisScale = placement.shape === 'custom'
+    ? placement.anchorType === 'head'
+      ? rotationCos * localShapeScaleX + rotationSin * localShapeScaleY
+      : rotationCos * localShapeScaleY + rotationSin * localShapeScaleX
+    : placement.anchorType === 'head'
+      ? localShapeScaleX
+      : localShapeScaleY;
   const attachmentRatio = placement.anchorType === 'head'
     ? placement.profile.attachmentRatioX
     : placement.profile.attachmentRatioY;
-  const rotationReachScale = Math.max(0.7, Math.cos(Math.abs(placement.rotationOffset)));
+  // Raster motifs use their rotated rectangular extent directly. Built-in
+  // profiles retain the simpler conservative rotation allowance.
+  const rotationReachScale = placement.shape === 'custom'
+    ? 1
+    : Math.max(0.7, rotationCos);
   const targetBreakRatio = anchorProfile.breakTargets[placement.breakStrength]
     ?? anchorProfile.breakTargets.medium;
 
   const calculateMetrics = candidateSize => {
     const outwardShapeRadius = candidateSize * 0.5 * attachmentAxisScale;
-    const attachmentReach = candidateSize
+    const shapeAttachmentReach = candidateSize
       * attachmentRatio
       * attachmentAxisScale
       * rotationReachScale;
+    const attachmentReach = placement.shape === 'custom'
+      ? Math.max(shapeAttachmentReach, geometry.width * 0.34)
+      : shapeAttachmentReach;
     const minimumOverlap = Math.min(
       geometry.width * anchorProfile.minimumOverlap,
       candidateSize * 0.16,
@@ -1332,8 +1633,12 @@ function buildValidatedAccent(placement, geometry, primaryMassWidth, acceptedAcc
     y: geometry.point.y + geometry.outward.y * centreOffset,
   };
   const boundRadius = size * 0.85 * Math.max(
-    anchorProfile.shapeScaleX * placement.profile.stretchX,
-    anchorProfile.shapeScaleY * placement.profile.stretchY,
+    anchorProfile.shapeScaleX
+      * placement.profile.stretchX
+      * (placement.profile.motifScaleX ?? 1),
+    anchorProfile.shapeScaleY
+      * placement.profile.stretchY
+      * (placement.profile.motifScaleY ?? 1),
   );
   const candidate = { center, boundRadius };
   const collision = findHeavyAccentCollision(candidate, acceptedAccents);
@@ -1366,6 +1671,7 @@ function buildValidatedAccent(placement, geometry, primaryMassWidth, acceptedAcc
     size * 0.2,
   );
   const needsBridge = placement.mode === 'replace'
+    || placement.shape === 'custom'
     || placement.anchorType === 'shoulder'
     || inwardCorrection > size * 0.012
     || overlap < metrics.minimumOverlap * 1.5
@@ -2083,6 +2389,22 @@ function drawAccentShape(accent) {
     profile.offsetX * halfSize,
     profile.offsetY * halfSize,
   );
+
+  if (accent.shape === 'custom' && profile.customMotif) {
+    const motifWidth = accent.size * profile.motifScaleX;
+    const motifHeight = accent.size * profile.motifScaleY;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(
+      profile.customMotif.canvas,
+      -motifWidth / 2,
+      -motifHeight / 2,
+      motifWidth,
+      motifHeight,
+    );
+    ctx.restore();
+    return;
+  }
+
   ctx.beginPath();
 
   if (accent.shape === 'circle') {
@@ -2408,6 +2730,8 @@ generateButton.addEventListener('click', () => generateSilhouette());
 symmetryToggle.addEventListener('change', updateSymmetryState);
 accentSymmetryToggle.addEventListener('change', updateAccentSymmetryState);
 inheritAccentShapeLanguageToggle.addEventListener('change', updateAccentInheritanceState);
+accentShapeTypeControl.addEventListener('change', updateCustomAccentControls);
+customAccentUpload.addEventListener('change', handleCustomAccentUpload);
 accentScaleMinControl.addEventListener('change', normaliseAccentScaleInputs);
 accentScaleMaxControl.addEventListener('change', normaliseAccentScaleInputs);
 editPoseToggle.addEventListener('change', () => {
@@ -2426,6 +2750,7 @@ canvas.addEventListener('pointercancel', endPoseDrag);
 updateSymmetryState();
 updateAccentSymmetryState();
 updateAccentInheritanceState();
+updateCustomAccentControls();
 normaliseAccentScaleInputs();
 applyProportionStyle(proportionStyleControl.value);
 generateSilhouette();
