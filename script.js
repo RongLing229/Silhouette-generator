@@ -30,6 +30,8 @@ const editPoseToggle = document.getElementById('editPose');
 const symmetryToggle = document.getElementById('symmetryToggle');
 const symmetryState = document.getElementById('symmetryState');
 const accentShapeTypeControl = document.getElementById('accentShapeType');
+const inheritAccentShapeLanguageToggle = document.getElementById('inheritAccentShapeLanguage');
+const inheritAccentShapeLanguageState = document.getElementById('inheritAccentShapeLanguageState');
 const accentAnchorHead = document.getElementById('accentAnchorHead');
 const accentAnchorShoulder = document.getElementById('accentAnchorShoulder');
 const accentAnchorElbow = document.getElementById('accentAnchorElbow');
@@ -399,6 +401,7 @@ function getAccentSettings() {
     minimumScale: scale.minimum,
     maximumScale: scale.maximum,
     mode: accentModeControl.value,
+    inheritShapeLanguage: inheritAccentShapeLanguageToggle.checked,
     breakStrength,
     breakFraction: breakFractions[breakStrength] ?? breakFractions.medium,
   };
@@ -432,43 +435,143 @@ function getAccentCandidateGroups(settings) {
   return groups;
 }
 
-function shuffleWithRandom(items, random) {
-  const shuffled = [...items];
-
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(random() * (index + 1));
-    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
-  }
-
-  return shuffled;
-}
-
 const accentShapeVariants = {
   triangle: ['skewedTriangle', 'wedge', 'longShard', 'bluntTriangle', 'taperedHybrid'],
   square: ['offsetRectangle', 'elongatedBlock', 'taperedBlock', 'steppedSlab', 'bevelledSquare'],
   circle: ['oval', 'offCentreRound', 'roundedWedge', 'capsule', 'droplet'],
 };
 
-function createAccentShapeProfile(shape, random) {
-  const variants = accentShapeVariants[shape] || accentShapeVariants.circle;
-  const deformation = shape === 'triangle' ? 1.15 : shape === 'square' ? 0.9 : 0.72;
+const accentAnchorProfiles = {
+  head: {
+    rotationRange: 24,
+    minimumOverlap: 0.18,
+    minimumScale: 0.68,
+    scaleBias: 0.9,
+    shapeScaleX: 1.08,
+    shapeScaleY: 0.94,
+    maximumPrimaryMassRatio: 0.96,
+    bridgeWidth: 0.24,
+    maskAlong: 0.34,
+    maskOutward: 0.22,
+    breakTargets: { subtle: 0.17, medium: 0.36, strong: 0.58 },
+  },
+  shoulder: {
+    rotationRange: 36,
+    minimumOverlap: 0.22,
+    minimumScale: 0.76,
+    scaleBias: 1.12,
+    shapeScaleX: 0.84,
+    shapeScaleY: 1.2,
+    maximumPrimaryMassRatio: 1,
+    bridgeWidth: 0.34,
+    maskAlong: 0.42,
+    maskOutward: 0.28,
+    breakTargets: { subtle: 0.2, medium: 0.42, strong: 0.68 },
+  },
+  elbow: {
+    rotationRange: 21,
+    minimumOverlap: 0.18,
+    minimumScale: 0.68,
+    scaleBias: 0.9,
+    shapeScaleX: 1.16,
+    shapeScaleY: 0.84,
+    maximumPrimaryMassRatio: 0.82,
+    bridgeWidth: 0.25,
+    maskAlong: 0.3,
+    maskOutward: 0.2,
+    breakTargets: { subtle: 0.16, medium: 0.34, strong: 0.52 },
+  },
+  knee: {
+    rotationRange: 19,
+    minimumOverlap: 0.19,
+    minimumScale: 0.72,
+    scaleBias: 0.98,
+    shapeScaleX: 1.18,
+    shapeScaleY: 0.9,
+    maximumPrimaryMassRatio: 0.92,
+    bridgeWidth: 0.28,
+    maskAlong: 0.34,
+    maskOutward: 0.22,
+    breakTargets: { subtle: 0.18, medium: 0.38, strong: 0.58 },
+  },
+};
+
+function applyInheritedShapeLanguage(profile, language) {
+  if (!language) return profile;
+
+  const { circle, square, triangle } = language.shapeBlend;
+  const influence = clamp(language.intensity * 0.16, 0.08, 0.24);
+  const softness = circle * influence;
+  const bluntness = square * influence;
+  const directionality = triangle * influence;
+  const taperDirection = Math.sign(profile.taper || profile.apexOffset || 1);
 
   return {
-    variant: variants[Math.floor(random() * variants.length)],
+    ...profile,
+    stretchX: profile.stretchX * (1 + directionality * 0.18 + bluntness * 0.04),
+    stretchY: profile.stretchY * (1 + softness * 0.08 - directionality * 0.06),
+    skew: profile.skew * (1 + directionality * 0.7 - softness * 0.3),
+    asymmetry: profile.asymmetry * (1 + directionality * 0.35 - bluntness * 0.2),
+    taper: clamp(
+      profile.taper * (1 - softness * 0.3 - bluntness * 0.12)
+        + taperDirection * directionality * 0.1,
+      -0.24,
+      0.24,
+    ),
+    cornerCut: clamp(profile.cornerCut + softness * 0.06 + bluntness * 0.025, 0.14, 0.34),
+    bulge: clamp(profile.bulge + softness * 0.12 - bluntness * 0.05, 0.86, 1.16),
+    inheritedShapeLanguage: true,
+  };
+}
+
+function createAccentShapeProfile(shape, random, language, inheritShapeLanguage) {
+  const variants = accentShapeVariants[shape] || accentShapeVariants.circle;
+  const deformation = shape === 'triangle' ? 1.15 : shape === 'square' ? 0.9 : 0.72;
+  const contourScale = {
+    clean: 0.68,
+    natural: 1,
+    expressive: 1.2,
+  }[language?.contourVariationName] ?? 1;
+  const variant = variants[Math.floor(random() * variants.length)];
+  const attachmentRatios = {
+    skewedTriangle: { x: 0.34, y: 0.32 },
+    wedge: { x: 0.32, y: 0.32 },
+    longShard: { x: 0.34, y: 0.23 },
+    bluntTriangle: { x: 0.34, y: 0.34 },
+    taperedHybrid: { x: 0.33, y: 0.33 },
+    offsetRectangle: { x: 0.4, y: 0.34 },
+    elongatedBlock: { x: 0.44, y: 0.27 },
+    taperedBlock: { x: 0.4, y: 0.33 },
+    steppedSlab: { x: 0.41, y: 0.3 },
+    bevelledSquare: { x: 0.41, y: 0.34 },
+    oval: { x: 0.44, y: 0.35 },
+    offCentreRound: { x: 0.42, y: 0.4 },
+    roundedWedge: { x: 0.4, y: 0.36 },
+    capsule: { x: 0.44, y: 0.27 },
+    droplet: { x: 0.4, y: 0.36 },
+  };
+  const attachmentRatio = attachmentRatios[variant] || { x: 0.32, y: 0.3 };
+
+  const profile = {
+    variant,
+    attachmentRatioX: attachmentRatio.x,
+    attachmentRatioY: attachmentRatio.y,
     stretchX: randomBetween(0.88, 1.18, random),
     stretchY: randomBetween(0.86, 1.14, random),
-    skew: randomBetween(-0.16, 0.16, random) * deformation,
-    asymmetry: randomBetween(-0.12, 0.12, random) * deformation,
+    skew: randomBetween(-0.16, 0.16, random) * deformation * contourScale,
+    asymmetry: randomBetween(-0.12, 0.12, random) * deformation * contourScale,
     offsetX: randomBetween(-0.055, 0.055, random),
-    offsetY: randomBetween(-0.075, 0.075, random) * deformation,
+    offsetY: randomBetween(-0.075, 0.075, random) * deformation * contourScale,
     apexOffset: randomBetween(-0.3, 0.3, random),
-    taper: randomBetween(-0.16, 0.16, random),
+    taper: randomBetween(-0.16, 0.16, random) * contourScale,
     cornerCut: randomBetween(0.16, 0.28, random),
     bulge: randomBetween(0.9, 1.1, random),
-    headSideBias: random() < 0.62
-      ? randomBetween(-0.58, 0.58, random)
-      : randomBetween(-0.12, 0.12, random),
+    inheritedShapeLanguage: false,
   };
+
+  return inheritShapeLanguage
+    ? applyInheritedShapeLanguage(profile, language)
+    : profile;
 }
 
 function getAccentAnchorType(anchorName) {
@@ -478,44 +581,99 @@ function getAccentAnchorType(anchorName) {
   return 'knee';
 }
 
-function createAccentVariation(settings, random) {
-  const candidates = shuffleWithRandom(getAccentCandidateGroups(settings), random);
+function chooseWeightedAccentCandidate(candidates, sideLoad, random) {
+  const weightedCandidates = candidates.map(anchorNames => {
+    if (anchorNames.length === 2 || anchorNames[0] === 'head') {
+      return { anchorNames, weight: 1 };
+    }
+
+    const side = anchorNames[0].startsWith('left') ? 'left' : 'right';
+    const otherSide = side === 'left' ? 'right' : 'left';
+    const excessLoad = Math.max(0, sideLoad[side] - sideLoad[otherSide]);
+
+    return {
+      anchorNames,
+      // Large same-side accents reduce the probability of another same-side
+      // choice without turning asymmetry into a hard rule.
+      weight: Math.max(0.18, 1 / (1 + excessLoad * 1.15)),
+    };
+  });
+  const totalWeight = weightedCandidates.reduce((sum, candidate) => sum + candidate.weight, 0);
+  let target = random() * totalWeight;
+
+  for (const candidate of weightedCandidates) {
+    target -= candidate.weight;
+    if (target <= 0) return candidate.anchorNames;
+  }
+
+  return weightedCandidates[weightedCandidates.length - 1].anchorNames;
+}
+
+function chooseHeadAccentPlacement(random) {
+  const value = random();
+  if (value < 0.46) return 'top';
+  return value < 0.73 ? 'left' : 'right';
+}
+
+function createAccentVariation(settings, random, language) {
+  const candidates = getAccentCandidateGroups(settings);
   if (candidates.length === 0) return [];
 
   // A mirrored pair is one design placement, although it produces two
   // physical accents. This keeps Max Accent Count predictable with symmetry.
   const maximum = Math.min(settings.maxCount, candidates.length);
   const placementCount = 1 + Math.floor(random() * maximum);
+  const availableCandidates = [...candidates];
+  const sideLoad = { left: 0, right: 0 };
+  const placements = [];
 
-  return candidates.slice(0, placementCount).flatMap(anchorNames => {
+  for (let designIndex = 0; designIndex < placementCount; designIndex += 1) {
+    const anchorNames = chooseWeightedAccentCandidate(availableCandidates, sideLoad, random);
+    const candidateIndex = availableCandidates.indexOf(anchorNames);
+    availableCandidates.splice(candidateIndex, 1);
     const anchorType = getAccentAnchorType(anchorNames[0]);
-    const rotationRanges = { head: 22, shoulder: 34, elbow: 22, knee: 20 };
+    const anchorProfile = accentAnchorProfiles[anchorType];
     const scale = randomBetween(settings.minimumScale, settings.maximumScale, random);
     const mode = settings.mode === 'mixed'
       ? (random() < 0.5 ? 'additive' : 'replace')
       : settings.mode;
-    const profile = createAccentShapeProfile(settings.shape, random);
+    const profile = createAccentShapeProfile(
+      settings.shape,
+      random,
+      language,
+      settings.inheritShapeLanguage,
+    );
     const rotationOffset = randomBetween(
-      -rotationRanges[anchorType],
-      rotationRanges[anchorType],
+      -anchorProfile.rotationRange,
+      anchorProfile.rotationRange,
       random,
     ) * (Math.PI / 180);
+    const headPlacement = anchorType === 'head' ? chooseHeadAccentPlacement(random) : null;
 
-    return anchorNames.map((anchorName, index) => ({
-      anchorName,
-      anchorType,
-      shape: settings.shape,
-      profile,
-      scale,
-      mode,
-      breakStrength: settings.breakStrength,
-      breakFraction: settings.breakFraction,
-      mirrorSign: anchorName.startsWith('right') ? -1 : 1,
-      rotationOffset: anchorNames.length === 2 && index === 1
-        ? -rotationOffset
-        : rotationOffset,
-    }));
-  });
+    anchorNames.forEach((anchorName, index) => {
+      placements.push({
+        anchorName,
+        anchorType,
+        designIndex,
+        shape: settings.shape,
+        profile,
+        scale,
+        mode,
+        headPlacement,
+        breakStrength: settings.breakStrength,
+        breakFraction: settings.breakFraction,
+        mirrorSign: anchorName.startsWith('right') ? -1 : 1,
+        rotationOffset: anchorNames.length === 2 && index === 1
+          ? -rotationOffset
+          : rotationOffset,
+      });
+
+      if (anchorName.startsWith('left')) sideLoad.left += scale;
+      if (anchorName.startsWith('right')) sideLoad.right += scale;
+    });
+  }
+
+  return placements;
 }
 
 function getShapeLanguage() {
@@ -984,163 +1142,342 @@ function getOutwardNormal(point, direction, centreX, fallbackX) {
   );
 }
 
-function getAccentRenderData(masses, skeleton, placements) {
-  const byName = Object.fromEntries(masses.map(mass => [mass.name, mass]));
-  const centreX = (skeleton.neckAnchor.x + skeleton.pelvisCenter.x) / 2;
-  const makeLimbGeometry = (
+function getHeadAccentDirection(skeleton, placement) {
+  const up = getDirection(skeleton.headAnchor, skeleton.headTop);
+  const right = { x: -up.y, y: up.x };
+  const placementDirection = {
+    top: up,
+    left: getDirection(
+      { x: 0, y: 0 },
+      { x: -right.x + up.x * 0.2, y: -right.y + up.y * 0.2 },
+    ),
+    right: getDirection(
+      { x: 0, y: 0 },
+      { x: right.x + up.x * 0.2, y: right.y + up.y * 0.2 },
+    ),
+  };
+
+  return placementDirection[placement.headPlacement] || up;
+}
+
+function getAccentAnchorGeometry(byName, skeleton, placement, centreX) {
+  const anchorProfile = accentAnchorProfiles[placement.anchorType];
+  const makeLimbGeometry = (point, direction, width, fallbackX, edgeScale = 0.5) => ({
     point,
     direction,
-    width,
-    fallbackX,
-    scaleBias,
-    shapeScaleX,
-    shapeScaleY,
-  ) => ({
-    point,
-    direction,
+    tangent: direction,
     outward: getOutwardNormal(point, direction, centreX, fallbackX),
     width,
-    edgeDistance: width / 2,
-    scaleBias,
-    shapeScaleX,
-    shapeScaleY,
+    edgeDistance: width * edgeScale,
+    anchorProfile,
   });
-  const anchorGeometry = {
-    head: () => {
-      const direction = getDirection(skeleton.headAnchor, skeleton.headTop);
-      const width = (byName.head.startWidth + byName.head.endWidth) / 2;
 
-      return {
-        point: skeleton.headAnchor,
-        direction,
-        outward: direction,
-        width,
-        // Head placement begins at the top contour, not the central landmark.
-        edgeDistance: Math.hypot(
-          skeleton.headTop.x - skeleton.headAnchor.x,
-          skeleton.headTop.y - skeleton.headAnchor.y,
-        ) + byName.head.startWidth * 0.1,
-        scaleBias: 0.9,
-        shapeScaleX: 1.08,
-        shapeScaleY: 0.94,
-      };
-    },
+  if (placement.anchorName === 'head') {
+    const direction = getHeadAccentDirection(skeleton, placement);
+    const width = (byName.head.startWidth + byName.head.endWidth) / 2;
+    const topDistance = Math.hypot(
+      skeleton.headTop.x - skeleton.headAnchor.x,
+      skeleton.headTop.y - skeleton.headAnchor.y,
+    ) + byName.head.startWidth * 0.1;
+    const isTopPlacement = placement.headPlacement === 'top';
+
+    return {
+      point: skeleton.headAnchor,
+      direction,
+      tangent: { x: -direction.y, y: direction.x },
+      outward: direction,
+      width,
+      edgeDistance: isTopPlacement ? topDistance : width * 0.52,
+      anchorProfile,
+    };
+  }
+
+  const geometryByAnchor = {
     leftShoulder: () => makeLimbGeometry(
       skeleton.leftShoulder,
       getDirection(skeleton.leftShoulder, skeleton.leftElbow),
       byName.leftUpperArm.startWidth,
       -1,
-      1.1,
-      0.88,
-      1.16,
+      0.42,
     ),
     rightShoulder: () => makeLimbGeometry(
       skeleton.rightShoulder,
       getDirection(skeleton.rightShoulder, skeleton.rightElbow),
       byName.rightUpperArm.startWidth,
       1,
-      1.1,
-      0.88,
-      1.16,
+      0.42,
     ),
     leftElbow: () => makeLimbGeometry(
       skeleton.leftElbow,
       getDirection(skeleton.leftShoulder, skeleton.leftWrist),
       (byName.leftUpperArm.endWidth + byName.leftLowerArm.startWidth) / 2,
       -1,
-      0.95,
-      1.12,
-      0.9,
     ),
     rightElbow: () => makeLimbGeometry(
       skeleton.rightElbow,
       getDirection(skeleton.rightShoulder, skeleton.rightWrist),
       (byName.rightUpperArm.endWidth + byName.rightLowerArm.startWidth) / 2,
       1,
-      0.95,
-      1.12,
-      0.9,
     ),
     leftKnee: () => makeLimbGeometry(
       skeleton.leftKnee,
       getDirection(skeleton.leftHip, skeleton.leftAnkle),
       (byName.leftUpperLeg.endWidth + byName.leftLowerLeg.startWidth) / 2,
       -1,
-      1,
-      1.16,
-      0.92,
     ),
     rightKnee: () => makeLimbGeometry(
       skeleton.rightKnee,
       getDirection(skeleton.rightHip, skeleton.rightAnkle),
       (byName.rightUpperLeg.endWidth + byName.rightLowerLeg.startWidth) / 2,
       1,
-      1,
-      1.16,
-      0.92,
     ),
   };
 
-  return placements.flatMap(placement => {
-    const resolveGeometry = anchorGeometry[placement.anchorName];
-    if (!resolveGeometry) return [];
+  return geometryByAnchor[placement.anchorName]?.() || null;
+}
 
-    const geometry = resolveGeometry();
-    if (placement.anchorName === 'head') {
-      const side = { x: -geometry.outward.y, y: geometry.outward.x };
-      const sideAmount = placement.profile.headSideBias;
-      const adjustedDirection = getDirection(
-        { x: 0, y: 0 },
-        {
-          x: geometry.outward.x + side.x * sideAmount,
-          y: geometry.outward.y + side.y * sideAmount,
-        },
-      );
-      const sideBlend = clamp(Math.abs(sideAmount), 0, 1);
+function findHeavyAccentCollision(candidate, acceptedAccents) {
+  return acceptedAccents.find(accent => {
+    const distance = Math.hypot(
+      candidate.center.x - accent.center.x,
+      candidate.center.y - accent.center.y,
+    );
+    const smallerRadius = Math.max(1, Math.min(candidate.boundRadius, accent.boundRadius));
+    const intrusion = candidate.boundRadius + accent.boundRadius - distance;
 
-      geometry.outward = adjustedDirection;
-      geometry.direction = adjustedDirection;
-      geometry.edgeDistance = geometry.edgeDistance * (1 - sideBlend)
-        + geometry.width * 0.52 * sideBlend;
-    }
-
-    const size = geometry.width * placement.scale * geometry.scaleBias;
-    const outwardShapeRadius = size
-      * 0.5
-      * geometry.shapeScaleY
-      * placement.profile.stretchY;
-    const centreOffset = geometry.edgeDistance
-      + size * placement.breakFraction
-      - outwardShapeRadius;
-    const maskAlongRadius = Math.min(size * 0.32, geometry.width * 0.48);
-    const maskOutwardRadius = Math.min(size * 0.22, geometry.width * 0.34);
-    const maskOffset = geometry.edgeDistance - maskOutwardRadius * 0.25;
-
-    return [{
-      ...placement,
-      anchorPoint: geometry.point,
-      outward: geometry.outward,
-      center: {
-        x: geometry.point.x + geometry.outward.x * centreOffset,
-        y: geometry.point.y + geometry.outward.y * centreOffset,
-      },
-      maskCenter: {
-        x: geometry.point.x + geometry.outward.x * maskOffset,
-        y: geometry.point.y + geometry.outward.y * maskOffset,
-      },
-      size,
-      angle: geometry.direction.angle + placement.rotationOffset,
-      bodyAngle: geometry.direction.angle,
-      shapeScaleX: geometry.shapeScaleX,
-      shapeScaleY: geometry.shapeScaleY,
-      boundRadius: size * 0.85 * Math.max(
-        geometry.shapeScaleX * placement.profile.stretchX,
-        geometry.shapeScaleY * placement.profile.stretchY,
-      ),
-      maskAlongRadius,
-      maskOutwardRadius,
-    }];
+    return intrusion / smallerRadius > 0.72;
   });
+}
+
+function buildValidatedAccent(placement, geometry, primaryMassWidth, acceptedAccents) {
+  const { anchorProfile } = geometry;
+  const requestedSize = geometry.width * placement.scale * anchorProfile.scaleBias;
+  const minimumSize = geometry.width * anchorProfile.minimumScale;
+  const maximumSize = primaryMassWidth * anchorProfile.maximumPrimaryMassRatio;
+  let size = clamp(requestedSize, minimumSize, maximumSize);
+  const attachmentAxisScale = placement.anchorType === 'head'
+    ? anchorProfile.shapeScaleX * placement.profile.stretchX
+    : anchorProfile.shapeScaleY * placement.profile.stretchY;
+  const attachmentRatio = placement.anchorType === 'head'
+    ? placement.profile.attachmentRatioX
+    : placement.profile.attachmentRatioY;
+  const rotationReachScale = Math.max(0.7, Math.cos(Math.abs(placement.rotationOffset)));
+  const targetBreakRatio = anchorProfile.breakTargets[placement.breakStrength]
+    ?? anchorProfile.breakTargets.medium;
+
+  const calculateMetrics = candidateSize => {
+    const outwardShapeRadius = candidateSize * 0.5 * attachmentAxisScale;
+    const attachmentReach = candidateSize
+      * attachmentRatio
+      * attachmentAxisScale
+      * rotationReachScale;
+    const minimumOverlap = Math.min(
+      geometry.width * anchorProfile.minimumOverlap,
+      candidateSize * 0.16,
+    );
+    const minimumVisibleBreak = Math.max(
+      geometry.width * targetBreakRatio,
+      Math.min(candidateSize * 0.14, geometry.width * 0.62),
+    );
+    const desiredCentreOffset = geometry.edgeDistance
+      + candidateSize * placement.breakFraction
+      - outwardShapeRadius;
+    const minimumBreakOffset = geometry.edgeDistance
+      + minimumVisibleBreak
+      - outwardShapeRadius;
+    const maximumAttachedOffset = geometry.edgeDistance
+      + attachmentReach
+      - minimumOverlap;
+
+    return {
+      outwardShapeRadius,
+      attachmentReach,
+      minimumOverlap,
+      minimumVisibleBreak,
+      desiredCentreOffset,
+      minimumBreakOffset,
+      maximumAttachedOffset,
+    };
+  };
+
+  let metrics = calculateMetrics(size);
+  if (metrics.minimumBreakOffset > metrics.maximumAttachedOffset && size < maximumSize) {
+    // One correction pass: slightly enlarge an under-performing candidate
+    // before deciding that this procedural variant should be rerolled.
+    size = Math.min(maximumSize, size * 1.12);
+    metrics = calculateMetrics(size);
+  }
+
+  if (metrics.minimumBreakOffset > metrics.maximumAttachedOffset) return null;
+
+  const centreOffset = clamp(
+    metrics.desiredCentreOffset,
+    metrics.minimumBreakOffset,
+    metrics.maximumAttachedOffset,
+  );
+  const inwardCorrection = Math.max(0, metrics.desiredCentreOffset - centreOffset);
+  const overlap = geometry.edgeDistance + metrics.attachmentReach - centreOffset;
+  const visibleBreak = centreOffset + metrics.outwardShapeRadius - geometry.edgeDistance;
+
+  if (
+    !Number.isFinite(centreOffset)
+    || overlap < metrics.minimumOverlap * 0.98
+    || visibleBreak < metrics.minimumVisibleBreak * 0.98
+  ) {
+    return null;
+  }
+
+  const center = {
+    x: geometry.point.x + geometry.outward.x * centreOffset,
+    y: geometry.point.y + geometry.outward.y * centreOffset,
+  };
+  const boundRadius = size * 0.85 * Math.max(
+    anchorProfile.shapeScaleX * placement.profile.stretchX,
+    anchorProfile.shapeScaleY * placement.profile.stretchY,
+  );
+  const candidate = { center, boundRadius };
+  const collision = findHeavyAccentCollision(candidate, acceptedAccents);
+  let tangentShift = 0;
+
+  if (collision) {
+    const relativeTangent = (center.x - collision.center.x) * geometry.tangent.x
+      + (center.y - collision.center.y) * geometry.tangent.y;
+    const shiftDirection = Math.abs(relativeTangent) > 0.01
+      ? Math.sign(relativeTangent)
+      : Math.sign(placement.profile.offsetX || 1);
+    tangentShift = Math.min(geometry.width * 0.34, size * 0.14) * shiftDirection;
+    center.x += geometry.tangent.x * tangentShift;
+    center.y += geometry.tangent.y * tangentShift;
+
+    if (findHeavyAccentCollision(candidate, acceptedAccents)) return null;
+  }
+
+  const maskAlongRadius = Math.min(
+    size * anchorProfile.maskAlong,
+    geometry.width * 0.68,
+  );
+  const maskOutwardRadius = Math.min(
+    size * anchorProfile.maskOutward,
+    geometry.width * 0.44,
+  );
+  const maskOffset = geometry.edgeDistance + maskOutwardRadius * 0.42;
+  const bridgeWidth = Math.min(
+    geometry.width * anchorProfile.bridgeWidth,
+    size * 0.2,
+  );
+  const needsBridge = placement.mode === 'replace'
+    || placement.anchorType === 'shoulder'
+    || inwardCorrection > size * 0.012
+    || overlap < metrics.minimumOverlap * 1.5
+    || attachmentRatio < 0.3;
+  const bridgeInset = placement.anchorType === 'shoulder' ? 0.9 : 0.58;
+  const bridgeStart = {
+    x: geometry.point.x
+      + geometry.outward.x * (geometry.edgeDistance - bridgeWidth * bridgeInset),
+    y: geometry.point.y
+      + geometry.outward.y * (geometry.edgeDistance - bridgeWidth * bridgeInset),
+  };
+  const bridgeEnd = {
+    x: center.x - geometry.outward.x * metrics.attachmentReach * 0.32,
+    y: center.y - geometry.outward.y * metrics.attachmentReach * 0.32,
+  };
+  const bridgeStartWidth = placement.mode === 'replace'
+    ? Math.max(bridgeWidth, maskAlongRadius * 1.35)
+    : bridgeWidth;
+  const bridgeEndWidth = placement.mode === 'replace'
+    ? Math.max(bridgeWidth * 0.7, maskAlongRadius * 0.85)
+    : bridgeWidth * 0.7;
+
+  return {
+    ...placement,
+    anchorPoint: geometry.point,
+    outward: geometry.outward,
+    center,
+    maskCenter: {
+      x: geometry.point.x + geometry.outward.x * maskOffset,
+      y: geometry.point.y + geometry.outward.y * maskOffset,
+    },
+    size,
+    requestedSize,
+    tangentShift,
+    angle: geometry.direction.angle + placement.rotationOffset,
+    bodyAngle: geometry.direction.angle,
+    shapeScaleX: anchorProfile.shapeScaleX,
+    shapeScaleY: anchorProfile.shapeScaleY,
+    overlap,
+    minimumOverlap: metrics.minimumOverlap,
+    visibleBreak,
+    minimumVisibleBreak: metrics.minimumVisibleBreak,
+    needsBridge,
+    bridgeStart,
+    bridgeEnd,
+    bridgeStartWidth,
+    bridgeEndWidth,
+    boundRadius,
+    maskAlongRadius,
+    maskOutwardRadius,
+  };
+}
+
+function getAccentRenderData(masses, skeleton, placements) {
+  const byName = Object.fromEntries(masses.map(mass => [mass.name, mass]));
+  const centreX = (skeleton.neckAnchor.x + skeleton.pelvisCenter.x) / 2;
+  const primaryMassWidth = Math.max(
+    byName.torso.startWidth,
+    byName.torso.endWidth,
+    byName.pelvis.startWidth,
+    byName.pelvis.endWidth,
+  );
+  const acceptedAccents = [];
+
+  placements.forEach(placement => {
+    const geometry = getAccentAnchorGeometry(byName, skeleton, placement, centreX);
+    if (!geometry) return;
+
+    const accent = buildValidatedAccent(
+      placement,
+      geometry,
+      primaryMassWidth,
+      acceptedAccents,
+    );
+    if (accent) acceptedAccents.push(accent);
+  });
+
+  return acceptedAccents;
+}
+
+function createAttachedAccentVariation(settings, random, masses, skeleton, language) {
+  const maximumAttempts = 5;
+
+  for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
+    const variation = createAccentVariation(settings, random, language);
+    if (variation.length === 0) return variation;
+
+    const attachedAccents = getAccentRenderData(masses, skeleton, variation);
+    if (attachedAccents.length === variation.length) {
+      return variation;
+    }
+  }
+
+  // A final conservative candidate preserves the requested shape family and
+  // mode while avoiding a completely empty result after several unusual
+  // collisions or extreme manual scale choices.
+  const fallbackVariation = createAccentVariation(
+    { ...settings, maxCount: 1 },
+    random,
+    language,
+  ).map(placement => ({
+    ...placement,
+    scale: Math.min(placement.scale, 2.8),
+    rotationOffset: placement.rotationOffset * 0.65,
+  }));
+  const fallbackAccents = getAccentRenderData(masses, skeleton, fallbackVariation);
+  if (fallbackAccents.length === fallbackVariation.length) {
+    return fallbackVariation;
+  }
+
+  // Omitting an irrecoverable candidate is preferable to a floating fragment.
+  return [];
 }
 
 function getMassBounds(masses, accents = []) {
@@ -1199,8 +1536,12 @@ function transformAccents(accents, transform) {
     anchorPoint: transformPoint(accent.anchorPoint, transform),
     center: transformPoint(accent.center, transform),
     maskCenter: transformPoint(accent.maskCenter, transform),
+    bridgeStart: transformPoint(accent.bridgeStart, transform),
+    bridgeEnd: transformPoint(accent.bridgeEnd, transform),
     size: accent.size * transform.scale,
     boundRadius: accent.boundRadius * transform.scale,
+    bridgeStartWidth: accent.bridgeStartWidth * transform.scale,
+    bridgeEndWidth: accent.bridgeEndWidth * transform.scale,
     maskAlongRadius: accent.maskAlongRadius * transform.scale,
     maskOutwardRadius: accent.maskOutwardRadius * transform.scale,
   }));
@@ -1759,9 +2100,9 @@ function drawAccentShape(accent) {
 function drawAccents(accents) {
   accents.forEach(accent => {
     if (accent.mode === 'replace') {
-      // A small local mask changes the nearby contour while the accent still
-      // overlaps the base mass. It is intentionally restrained so joints stay
-      // connected and the humanoid blockout remains readable.
+      // Clear only a shallow outer cap, then immediately rebuild its inner
+      // connection with the merge base below. This rewrites the contour
+      // without leaving a retained hole or negative-space notch.
       ctx.save();
       ctx.globalCompositeOperation = 'destination-out';
       ctx.beginPath();
@@ -1775,6 +2116,19 @@ function drawAccents(accents) {
         Math.PI * 2,
       );
       ctx.fill();
+      ctx.restore();
+    }
+
+    if (accent.needsBridge) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#111111';
+      fillTaperedTransition(
+        accent.bridgeStart,
+        accent.bridgeEnd,
+        accent.bridgeStartWidth,
+        accent.bridgeEndWidth,
+      );
       ctx.restore();
     }
 
@@ -1918,9 +2272,25 @@ function generateSilhouette(requestedSeed) {
   currentMassVariation = currentShapeLanguage
     ? createMassVariation(currentShapeLanguage, random, seed)
     : null;
-  currentAccentVariation = currentShapeLanguage
-    ? createAccentVariation(getAccentSettings(), random)
-    : [];
+  if (currentShapeLanguage && currentMassVariation) {
+    const proportions = getCurrentProportions();
+    const skeleton = applyPoseOffsets(buildDefaultSkeleton(proportions));
+    const masses = buildBodyMasses(
+      proportions,
+      skeleton,
+      currentMassVariation,
+      currentShapeLanguage,
+    );
+    currentAccentVariation = createAttachedAccentVariation(
+      getAccentSettings(),
+      random,
+      masses,
+      skeleton,
+      currentShapeLanguage,
+    );
+  } else {
+    currentAccentVariation = [];
+  }
   canvas.dataset.seed = String(seed);
   renderSilhouette();
 }
@@ -2011,6 +2381,12 @@ function updateAccentSymmetryState() {
   accentSymmetryState.textContent = accentSymmetryToggle.checked ? 'ON' : 'OFF';
 }
 
+function updateAccentInheritanceState() {
+  inheritAccentShapeLanguageState.textContent = inheritAccentShapeLanguageToggle.checked
+    ? 'ON'
+    : 'OFF';
+}
+
 proportionControls.forEach(control => {
   control.input.addEventListener('input', () => updateFromSlider(control));
   control.numberInput.addEventListener('input', () => updateFromNumber(control));
@@ -2031,6 +2407,7 @@ randomiseProportionsButton.addEventListener('click', randomiseProportions);
 generateButton.addEventListener('click', () => generateSilhouette());
 symmetryToggle.addEventListener('change', updateSymmetryState);
 accentSymmetryToggle.addEventListener('change', updateAccentSymmetryState);
+inheritAccentShapeLanguageToggle.addEventListener('change', updateAccentInheritanceState);
 accentScaleMinControl.addEventListener('change', normaliseAccentScaleInputs);
 accentScaleMaxControl.addEventListener('change', normaliseAccentScaleInputs);
 editPoseToggle.addEventListener('change', () => {
@@ -2048,6 +2425,7 @@ canvas.addEventListener('pointerup', endPoseDrag);
 canvas.addEventListener('pointercancel', endPoseDrag);
 updateSymmetryState();
 updateAccentSymmetryState();
+updateAccentInheritanceState();
 normaliseAccentScaleInputs();
 applyProportionStyle(proportionStyleControl.value);
 generateSilhouette();
