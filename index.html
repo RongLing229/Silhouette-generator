@@ -233,6 +233,21 @@
                   Upload a transparent PNG accent shape.
                 </p>
               </div>
+
+              <label class="select-row" for="customRotationVariation">
+                <span>Rotation Variation</span>
+                <select id="customRotationVariation">
+                  <option value="low">Low</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="high">High</option>
+                  <option value="random">Random</option>
+                </select>
+              </label>
+
+              <label class="debug-row" for="allowCustomRandomFlip">
+                <input type="checkbox" id="allowCustomRandomFlip">
+                <span>Allow Random Flip</span>
+              </label>
             </div>
 
             <label class="debug-row accent-symmetry-row" for="inheritAccentShapeLanguage">
@@ -301,11 +316,11 @@
               <div class="accent-scale-inputs">
                 <label class="accent-scale-field" for="accentScaleMin">
                   <span>Min</span>
-                  <input type="number" id="accentScaleMin" value="0.80" min="0.25" max="10.00" step="0.05">
+                  <input type="number" id="accentScaleMin" value="0.80" min="0.25" max="20.00" step="0.05">
                 </label>
                 <label class="accent-scale-field" for="accentScaleMax">
                   <span>Max</span>
-                  <input type="number" id="accentScaleMax" value="1.80" min="0.25" max="10.00" step="0.05">
+                  <input type="number" id="accentScaleMax" value="1.80" min="0.25" max="20.00" step="0.05">
                 </label>
               </div>
             </div>

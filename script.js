@@ -35,6 +35,8 @@ const customAccentUpload = document.getElementById('customAccentUpload');
 const customAccentPreview = document.getElementById('customAccentPreview');
 const customAccentPreviewContext = customAccentPreview.getContext('2d');
 const customAccentStatus = document.getElementById('customAccentStatus');
+const customRotationVariationControl = document.getElementById('customRotationVariation');
+const allowCustomRandomFlipToggle = document.getElementById('allowCustomRandomFlip');
 const inheritAccentShapeLanguageToggle = document.getElementById('inheritAccentShapeLanguage');
 const inheritAccentShapeLanguageState = document.getElementById('inheritAccentShapeLanguageState');
 const accentAnchorHead = document.getElementById('accentAnchorHead');
@@ -284,6 +286,13 @@ let currentShapeLanguage = null;
 let currentAccentVariation = [];
 let currentCustomAccentMotif = null;
 let customAccentUploadSequence = 0;
+const accentScaleRangesByMode = {
+  builtIn: { minimum: 0.8, maximum: 1.8 },
+  custom: { minimum: 1.1, maximum: 2.1 },
+};
+let activeAccentScaleMode = accentShapeTypeControl.value === 'custom'
+  ? 'custom'
+  : 'builtIn';
 let currentPoseView = null;
 let activePoseJoint = null;
 let lastPointerPosition = null;
@@ -506,27 +515,80 @@ function normaliseCustomAccentImage(image, fileName) {
   maskCanvas.height = croppedHeight;
   const maskContext = maskCanvas.getContext('2d');
   const croppedImage = maskContext.createImageData(croppedWidth, croppedHeight);
+  let visibleAlphaWeight = 0;
+  let weightedX = 0;
+  let weightedY = 0;
 
   for (let y = 0; y < croppedHeight; y += 1) {
     for (let x = 0; x < croppedWidth; x += 1) {
       const sourceIndex = (y + minY) * width + (x + minX);
       const targetIndex = (y * croppedWidth + x) * 4;
+      const alpha = mask[sourceIndex];
       croppedImage.data[targetIndex] = 17;
       croppedImage.data[targetIndex + 1] = 17;
       croppedImage.data[targetIndex + 2] = 17;
-      croppedImage.data[targetIndex + 3] = mask[sourceIndex];
+      croppedImage.data[targetIndex + 3] = alpha;
+
+      const alphaWeight = alpha / 255;
+      visibleAlphaWeight += alphaWeight;
+      weightedX += (x + 0.5) * alphaWeight;
+      weightedY += (y + 0.5) * alphaWeight;
     }
   }
 
   maskContext.putImageData(croppedImage, 0, 0);
   const maximumDimension = Math.max(croppedWidth, croppedHeight);
+  const visibleFillRatio = visibleAlphaWeight / (croppedWidth * croppedHeight);
+  const normalisationScale = clamp(
+    1.14 + (1 - Math.sqrt(visibleFillRatio)) * 0.38,
+    1.14,
+    1.42,
+  );
+  const originX = weightedX / Math.max(visibleAlphaWeight, 0.001);
+  const originY = weightedY / Math.max(visibleAlphaWeight, 0.001);
+  const supportDirections = Array.from({ length: 32 }, (_, index) => {
+    const angle = index / 32 * Math.PI * 2;
+    return { x: Math.cos(angle), y: Math.sin(angle) };
+  });
+  const supportPoints = supportDirections.map(direction => ({
+    direction,
+    dot: -Infinity,
+    point: { x: 0, y: 0 },
+  }));
+
+  // Retain a compact set of actual visible-mask extremes. Placement can then
+  // validate the transformed motif rather than its rectangular image canvas.
+  for (let y = 0; y < croppedHeight; y += 1) {
+    for (let x = 0; x < croppedWidth; x += 1) {
+      const sourceIndex = (y + minY) * width + (x + minX);
+      if (mask[sourceIndex] < 12) continue;
+
+      const point = {
+        x: (x + 0.5 - originX) / maximumDimension * normalisationScale,
+        y: (y + 0.5 - originY) / maximumDimension * normalisationScale,
+      };
+
+      supportPoints.forEach(support => {
+        const dot = point.x * support.direction.x + point.y * support.direction.y;
+        if (dot > support.dot) {
+          support.dot = dot;
+          support.point = point;
+        }
+      });
+    }
+  }
 
   return {
     canvas: maskCanvas,
     width: croppedWidth,
     height: croppedHeight,
-    scaleX: croppedWidth / maximumDimension,
-    scaleY: croppedHeight / maximumDimension,
+    scaleX: croppedWidth / maximumDimension * normalisationScale,
+    scaleY: croppedHeight / maximumDimension * normalisationScale,
+    normalisationScale,
+    originX,
+    originY,
+    supportPoints: supportPoints.map(support => support.point),
+    visibleFillRatio,
     sourceUsedAlpha: useAlphaMask,
     fileName,
   };
@@ -581,7 +643,16 @@ async function handleCustomAccentUpload(event) {
 
 function updateCustomAccentControls() {
   const customSelected = accentShapeTypeControl.value === 'custom';
+  const nextScaleMode = customSelected ? 'custom' : 'builtIn';
   customAccentControls.hidden = !customSelected;
+
+  if (nextScaleMode !== activeAccentScaleMode) {
+    accentScaleRangesByMode[activeAccentScaleMode] = normaliseAccentScaleInputs();
+    activeAccentScaleMode = nextScaleMode;
+    const nextScale = accentScaleRangesByMode[nextScaleMode];
+    accentScaleMinControl.value = nextScale.minimum.toFixed(2);
+    accentScaleMaxControl.value = nextScale.maximum.toFixed(2);
+  }
 
   if (customSelected && !currentCustomAccentMotif) {
     setCustomAccentStatus('Upload an accent shape first.', 'error');
@@ -616,6 +687,7 @@ function normaliseAccentScaleInputs() {
 function getAccentSettings() {
   const scale = normaliseAccentScaleInputs();
   const breakFractions = { subtle: 0.26, medium: 0.48, strong: 0.7 };
+  const customRotationRanges = { low: 10, medium: 30, high: 60, random: 90 };
   const breakStrength = silhouetteBreakStrengthControl.value;
   const shape = accentShapeTypeControl.value;
 
@@ -638,6 +710,10 @@ function getAccentSettings() {
     maximumScale: scale.maximum,
     mode: accentModeControl.value,
     inheritShapeLanguage: inheritAccentShapeLanguageToggle.checked,
+    rotationVariation: customRotationVariationControl.value,
+    rotationRange: customRotationRanges[customRotationVariationControl.value]
+      ?? customRotationRanges.medium,
+    allowRandomFlip: allowCustomRandomFlipToggle.checked,
     breakStrength,
     breakFraction: breakFractions[breakStrength] ?? breakFractions.medium,
   };
@@ -925,11 +1001,17 @@ function createAccentVariation(settings, random, language) {
       settings.inheritShapeLanguage,
       settings.customMotif,
     );
+    const rotationRange = settings.shape === 'custom'
+      ? settings.rotationRange
+      : anchorProfile.rotationRange;
     const rotationOffset = randomBetween(
-      -anchorProfile.rotationRange,
-      anchorProfile.rotationRange,
+      -rotationRange,
+      rotationRange,
       random,
     ) * (Math.PI / 180);
+    const flipX = settings.shape === 'custom'
+      && settings.allowRandomFlip
+      && random() < 0.5;
     const headPlacement = anchorType === 'head' ? chooseHeadAccentPlacement(random) : null;
 
     anchorNames.forEach((anchorName, index) => {
@@ -944,6 +1026,7 @@ function createAccentVariation(settings, random, language) {
         headPlacement,
         breakStrength: settings.breakStrength,
         breakFraction: settings.breakFraction,
+        flipX,
         mirrorSign: anchorName.startsWith('right') ? -1 : 1,
         rotationOffset: anchorNames.length === 2 && index === 1
           ? -rotationOffset
@@ -1531,12 +1614,62 @@ function findHeavyAccentCollision(candidate, acceptedAccents) {
   });
 }
 
+function getCustomMotifTransformMetrics(placement, geometry) {
+  const { profile } = placement;
+  const supportPoints = profile.customMotif?.supportPoints || [];
+  const flipScaleX = placement.flipX ? -1 : 1;
+  const mirrorScaleY = placement.mirrorSign ?? 1;
+  const scaleX = geometry.anchorProfile.shapeScaleX * profile.stretchX * flipScaleX;
+  const scaleY = geometry.anchorProfile.shapeScaleY * profile.stretchY * mirrorScaleY;
+  const angle = geometry.direction.angle + placement.rotationOffset;
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  let minimumOutward = Infinity;
+  let maximumOutward = -Infinity;
+  let boundRadius = 0;
+
+  supportPoints.forEach(point => {
+    const deformedX = point.x
+      + profile.skew * point.y
+      + profile.offsetX * 0.5;
+    const deformedY = profile.asymmetry * point.x
+      + point.y
+      + profile.offsetY * 0.5;
+    const localX = deformedX * scaleX;
+    const localY = deformedY * scaleY;
+    const worldX = cosine * localX - sine * localY;
+    const worldY = sine * localX + cosine * localY;
+    const outwardProjection = worldX * geometry.outward.x
+      + worldY * geometry.outward.y;
+
+    minimumOutward = Math.min(minimumOutward, outwardProjection);
+    maximumOutward = Math.max(maximumOutward, outwardProjection);
+    boundRadius = Math.max(boundRadius, Math.hypot(worldX, worldY));
+  });
+
+  if (!Number.isFinite(minimumOutward) || !Number.isFinite(maximumOutward)) {
+    return null;
+  }
+
+  return {
+    outwardRadiusScale: Math.max(0, maximumOutward),
+    inwardReachScale: Math.max(0, -minimumOutward),
+    boundRadiusScale: boundRadius,
+  };
+}
+
 function buildValidatedAccent(placement, geometry, primaryMassWidth, acceptedAccents) {
   const { anchorProfile } = geometry;
   const requestedSize = geometry.width * placement.scale * anchorProfile.scaleBias;
   const minimumSize = geometry.width * anchorProfile.minimumScale;
-  const maximumSize = primaryMassWidth * anchorProfile.maximumPrimaryMassRatio;
+  const maximumSize = placement.shape === 'custom'
+    ? Math.max(requestedSize, primaryMassWidth * anchorProfile.maximumPrimaryMassRatio)
+    : primaryMassWidth * anchorProfile.maximumPrimaryMassRatio;
   let size = clamp(requestedSize, minimumSize, maximumSize);
+  const customTransformMetrics = placement.shape === 'custom'
+    ? getCustomMotifTransformMetrics(placement, geometry)
+    : null;
+  if (placement.shape === 'custom' && !customTransformMetrics) return null;
   const localShapeScaleX = anchorProfile.shapeScaleX
     * placement.profile.stretchX
     * (placement.profile.motifScaleX ?? 1);
@@ -1564,11 +1697,12 @@ function buildValidatedAccent(placement, geometry, primaryMassWidth, acceptedAcc
     ?? anchorProfile.breakTargets.medium;
 
   const calculateMetrics = candidateSize => {
-    const outwardShapeRadius = candidateSize * 0.5 * attachmentAxisScale;
-    const shapeAttachmentReach = candidateSize
-      * attachmentRatio
-      * attachmentAxisScale
-      * rotationReachScale;
+    const outwardShapeRadius = customTransformMetrics
+      ? candidateSize * customTransformMetrics.outwardRadiusScale
+      : candidateSize * 0.5 * attachmentAxisScale;
+    const shapeAttachmentReach = customTransformMetrics
+      ? candidateSize * customTransformMetrics.inwardReachScale * 0.86
+      : candidateSize * attachmentRatio * attachmentAxisScale * rotationReachScale;
     const attachmentReach = placement.shape === 'custom'
       ? Math.max(shapeAttachmentReach, geometry.width * 0.34)
       : shapeAttachmentReach;
@@ -1632,14 +1766,16 @@ function buildValidatedAccent(placement, geometry, primaryMassWidth, acceptedAcc
     x: geometry.point.x + geometry.outward.x * centreOffset,
     y: geometry.point.y + geometry.outward.y * centreOffset,
   };
-  const boundRadius = size * 0.85 * Math.max(
-    anchorProfile.shapeScaleX
-      * placement.profile.stretchX
-      * (placement.profile.motifScaleX ?? 1),
-    anchorProfile.shapeScaleY
-      * placement.profile.stretchY
-      * (placement.profile.motifScaleY ?? 1),
-  );
+  const boundRadius = customTransformMetrics
+    ? size * customTransformMetrics.boundRadiusScale * 1.04
+    : size * 0.85 * Math.max(
+      anchorProfile.shapeScaleX
+        * placement.profile.stretchX
+        * (placement.profile.motifScaleX ?? 1),
+      anchorProfile.shapeScaleY
+        * placement.profile.stretchY
+        * (placement.profile.motifScaleY ?? 1),
+    );
   const candidate = { center, boundRadius };
   const collision = findHeavyAccentCollision(candidate, acceptedAccents);
   let tangentShift = 0;
@@ -1655,6 +1791,26 @@ function buildValidatedAccent(placement, geometry, primaryMassWidth, acceptedAcc
     center.y += geometry.tangent.y * tangentShift;
 
     if (findHeavyAccentCollision(candidate, acceptedAccents)) return null;
+  }
+
+  // A collision correction normally moves along the limb, but edited poses
+  // can make that tangent slightly non-perpendicular to the outward normal.
+  // Recheck attachment using the final corrected centre.
+  const outwardShift = tangentShift * (
+    geometry.tangent.x * geometry.outward.x
+    + geometry.tangent.y * geometry.outward.y
+  );
+  const finalCentreOffset = centreOffset + outwardShift;
+  const finalOverlap = geometry.edgeDistance + metrics.attachmentReach - finalCentreOffset;
+  const finalVisibleBreak = finalCentreOffset
+    + metrics.outwardShapeRadius
+    - geometry.edgeDistance;
+
+  if (
+    finalOverlap < metrics.minimumOverlap * 0.98
+    || finalVisibleBreak < metrics.minimumVisibleBreak * 0.98
+  ) {
+    return null;
   }
 
   const maskAlongRadius = Math.min(
@@ -1674,7 +1830,7 @@ function buildValidatedAccent(placement, geometry, primaryMassWidth, acceptedAcc
     || placement.shape === 'custom'
     || placement.anchorType === 'shoulder'
     || inwardCorrection > size * 0.012
-    || overlap < metrics.minimumOverlap * 1.5
+    || finalOverlap < metrics.minimumOverlap * 1.5
     || attachmentRatio < 0.3;
   const bridgeInset = placement.anchorType === 'shoulder' ? 0.9 : 0.58;
   const bridgeStart = {
@@ -1710,9 +1866,9 @@ function buildValidatedAccent(placement, geometry, primaryMassWidth, acceptedAcc
     bodyAngle: geometry.direction.angle,
     shapeScaleX: anchorProfile.shapeScaleX,
     shapeScaleY: anchorProfile.shapeScaleY,
-    overlap,
+    overlap: finalOverlap,
     minimumOverlap: metrics.minimumOverlap,
-    visibleBreak,
+    visibleBreak: finalVisibleBreak,
     minimumVisibleBreak: metrics.minimumVisibleBreak,
     needsBridge,
     bridgeStart,
@@ -1774,7 +1930,9 @@ function createAttachedAccentVariation(settings, random, masses, skeleton, langu
     language,
   ).map(placement => ({
     ...placement,
-    scale: Math.min(placement.scale, 2.8),
+    scale: placement.shape === 'custom'
+      ? placement.scale
+      : Math.min(placement.scale, 2.8),
     rotationOffset: placement.rotationOffset * 0.65,
   }));
   const fallbackAccents = getAccentRenderData(masses, skeleton, fallbackVariation);
@@ -2378,7 +2536,7 @@ function drawAccentShape(accent) {
   ctx.translate(accent.center.x, accent.center.y);
   ctx.rotate(accent.angle);
   ctx.scale(
-    accent.shapeScaleX * profile.stretchX,
+    accent.shapeScaleX * profile.stretchX * (accent.flipX ? -1 : 1),
     accent.shapeScaleY * profile.stretchY * accent.mirrorSign,
   );
   ctx.transform(
@@ -2393,11 +2551,17 @@ function drawAccentShape(accent) {
   if (accent.shape === 'custom' && profile.customMotif) {
     const motifWidth = accent.size * profile.motifScaleX;
     const motifHeight = accent.size * profile.motifScaleY;
+    const motifX = -profile.customMotif.originX
+      / profile.customMotif.width
+      * motifWidth;
+    const motifY = -profile.customMotif.originY
+      / profile.customMotif.height
+      * motifHeight;
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(
       profile.customMotif.canvas,
-      -motifWidth / 2,
-      -motifHeight / 2,
+      motifX,
+      motifY,
       motifWidth,
       motifHeight,
     );
