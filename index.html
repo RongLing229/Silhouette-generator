@@ -197,6 +197,84 @@
         </details>
 
         <details class="control-group control-section">
+          <summary>Accent Shapes</summary>
+          <div class="control-section-content">
+            <p class="group-hint">Optional secondary forms placed at enabled structural anchors.</p>
+
+            <label class="select-row" for="accentShapeType">
+              <span>Shape Type</span>
+              <select id="accentShapeType">
+                <option value="circle" selected>Circle</option>
+                <option value="square">Square</option>
+                <option value="triangle">Triangle</option>
+              </select>
+            </label>
+
+            <div class="accent-option-group">
+              <span class="accent-group-label">Allowed Anchors</span>
+              <div class="accent-anchor-grid">
+                <label class="accent-anchor-option" for="accentAnchorHead">
+                  <input type="checkbox" id="accentAnchorHead">
+                  <span>Head</span>
+                </label>
+                <label class="accent-anchor-option" for="accentAnchorShoulder">
+                  <input type="checkbox" id="accentAnchorShoulder">
+                  <span>Shoulder</span>
+                </label>
+                <label class="accent-anchor-option" for="accentAnchorElbow">
+                  <input type="checkbox" id="accentAnchorElbow">
+                  <span>Elbow</span>
+                </label>
+                <label class="accent-anchor-option" for="accentAnchorKnee">
+                  <input type="checkbox" id="accentAnchorKnee">
+                  <span>Knee</span>
+                </label>
+              </div>
+            </div>
+
+            <label class="select-row" for="maxAccentCount">
+              <span>Max Accent Count</span>
+              <select id="maxAccentCount">
+                <option value="1">1</option>
+                <option value="2" selected>2</option>
+                <option value="3">3</option>
+              </select>
+            </label>
+
+            <label class="select-row" for="accentMode">
+              <span>Accent Mode</span>
+              <select id="accentMode">
+                <option value="additive" selected>Additive</option>
+                <option value="replace">Replace</option>
+                <option value="mixed">Mixed</option>
+              </select>
+            </label>
+
+            <label class="debug-row accent-symmetry-row" for="accentSymmetry">
+              <input type="checkbox" id="accentSymmetry" role="switch" checked>
+              <span>Accent Symmetry</span>
+              <span id="accentSymmetryState" class="accent-state" aria-live="polite">ON</span>
+            </label>
+
+            <div class="accent-option-group">
+              <span class="accent-group-label">Accent Scale</span>
+              <div class="accent-scale-inputs">
+                <label class="accent-scale-field" for="accentScaleMin">
+                  <span>Min</span>
+                  <input type="number" id="accentScaleMin" value="0.55" min="0.35" max="1.00" step="0.05">
+                </label>
+                <label class="accent-scale-field" for="accentScaleMax">
+                  <span>Max</span>
+                  <input type="number" id="accentScaleMax" value="0.80" min="0.35" max="1.00" step="0.05">
+                </label>
+              </div>
+            </div>
+
+            <p class="group-hint">Set Min and Max to the same value for fixed scale. Mirrored pairs count as one placement.</p>
+          </div>
+        </details>
+
+        <details class="control-group control-section">
           <summary>Pose / Skeleton</summary>
           <div class="control-section-content">
             <div class="display-options">

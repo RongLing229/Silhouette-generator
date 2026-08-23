@@ -316,6 +316,56 @@ input[type="checkbox"]:focus-visible {
   color: #5d5b55;
 }
 
+.accent-option-group {
+  display: grid;
+  gap: 0.5rem;
+  padding-top: 0.25rem;
+}
+
+.accent-group-label {
+  color: #4f4d47;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.accent-anchor-grid,
+.accent-scale-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.accent-anchor-option,
+.accent-scale-field {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #5d5b55;
+  font-size: 0.76rem;
+}
+
+.accent-symmetry-row {
+  min-height: 2rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid #d7d5ce;
+}
+
+.accent-state {
+  margin-left: auto;
+  color: #77756e;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+}
+
+.accent-scale-field input {
+  min-width: 0;
+  width: 100%;
+  margin-left: auto;
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .display-options {
   display: grid;
   gap: 0.65rem;
