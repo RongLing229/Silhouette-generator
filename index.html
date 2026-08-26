@@ -196,6 +196,45 @@
           </div>
         </details>
 
+        <details class="control-group control-section" open>
+          <summary>Mass Generation</summary>
+          <div class="control-section-content">
+            <p class="group-hint">Create one editable blockout or a 1920 × 1080 exploration sheet.</p>
+
+            <label class="select-row" for="generationMode">
+              <span>Generation Mode</span>
+              <select id="generationMode">
+                <option value="single" selected>Single</option>
+                <option value="batch">Batch</option>
+              </select>
+            </label>
+
+            <div id="batchControls" class="batch-controls" hidden>
+              <label class="select-row" for="batchCount">
+                <span>Number of Silhouettes</span>
+                <input class="batch-count-input" type="number" id="batchCount" value="9" min="2" max="30" step="1">
+              </label>
+
+              <label class="select-row" for="batchVariationMode">
+                <span>Batch Variation Mode</span>
+                <select id="batchVariationMode">
+                  <option value="specified" selected>Specified</option>
+                  <option value="randomized">Randomized</option>
+                </select>
+              </label>
+
+              <label id="randomizationScopeRow" class="select-row" for="randomizationScope" hidden>
+                <span>Randomization Scope</span>
+                <select id="randomizationScope">
+                  <option value="accent">Accent only</option>
+                  <option value="shapeProportion" selected>Shape + Proportion</option>
+                  <option value="everything">Everything</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        </details>
+
         <details class="control-group control-section">
           <summary>Accent Shapes</summary>
           <div class="control-section-content">
@@ -352,18 +391,19 @@
         <header class="workspace-header">
           <div>
             <p class="eyebrow">Canvas</p>
-            <h2>Single blockout</h2>
+            <h2 id="workspaceTitle">Single blockout</h2>
           </div>
-          <span class="canvas-size">600 &times; 700</span>
+          <span id="workspaceCanvasSize" class="canvas-size">600 &times; 700</span>
         </header>
 
         <div class="canvas-stage">
-          <label class="symmetry-control" for="symmetryToggle">
+          <label id="workspaceSymmetryControl" class="symmetry-control" for="symmetryToggle">
             <span>Symmetry</span>
             <input type="checkbox" id="symmetryToggle" role="switch" checked>
             <span id="symmetryState" class="symmetry-state" aria-live="polite">ON</span>
           </label>
           <canvas id="drawCanvas" width="600" height="700" aria-label="Generated full-body silhouette"></canvas>
+          <canvas id="batchCanvas" width="1920" height="1080" aria-label="Generated silhouette thumbnail sheet" hidden></canvas>
         </div>
       </section>
     </main>

@@ -1,6 +1,17 @@
 const generateButton = document.getElementById('generateButton');
 const canvas = document.getElementById('drawCanvas');
-const ctx = canvas.getContext('2d');
+let ctx = canvas.getContext('2d');
+const batchCanvas = document.getElementById('batchCanvas');
+const batchContext = batchCanvas.getContext('2d');
+const workspaceTitle = document.getElementById('workspaceTitle');
+const workspaceCanvasSize = document.getElementById('workspaceCanvasSize');
+const workspaceSymmetryControl = document.getElementById('workspaceSymmetryControl');
+const generationModeControl = document.getElementById('generationMode');
+const batchControls = document.getElementById('batchControls');
+const batchCountControl = document.getElementById('batchCount');
+const batchVariationModeControl = document.getElementById('batchVariationMode');
+const randomizationScopeRow = document.getElementById('randomizationScopeRow');
+const randomizationScopeControl = document.getElementById('randomizationScope');
 const cbCircle = document.getElementById('shapeCircle');
 const cbSquare = document.getElementById('shapeSquare');
 const cbTriangle = document.getElementById('shapeTriangle');
@@ -284,6 +295,10 @@ const mirroredJointPairs = {
 let currentMassVariation = null;
 let currentShapeLanguage = null;
 let currentAccentVariation = [];
+let currentBatchModels = [];
+const singleCanvasSize = { width: 600, height: 700 };
+const batchStagingCanvas = document.createElement('canvas');
+const batchStagingContext = batchStagingCanvas.getContext('2d');
 let currentCustomAccentMotif = null;
 let customAccentUploadSequence = 0;
 const accentScaleRangesByMode = {
@@ -1041,13 +1056,38 @@ function createAccentVariation(settings, random, language) {
   return placements;
 }
 
+function completeShapeLanguage({
+  intensity,
+  rigidityName,
+  contourVariationName,
+  shapeBlend,
+  massBias,
+  taperDirection,
+}) {
+  const rigidityValues = { organic: 0.18, balanced: 0.58, geometric: 1 };
+  const rigidity = rigidityValues[rigidityName] ?? rigidityValues.balanced;
+  const contourVariationValues = { clean: 0.008, natural: 0.035, expressive: 0.07 };
+
+  return {
+    intensity,
+    rigidity,
+    rigidityName,
+    contourVariationName,
+    contourVariation: contourVariationValues[contourVariationName]
+      ?? contourVariationValues.natural,
+    shapeBlend,
+    massBias,
+    taperDirection,
+    circleStrength: clamp(shapeBlend.circle * intensity, 0, 1.45),
+    squareStrength: clamp(shapeBlend.square * intensity, 0, 1.45),
+    triangleStrength: clamp(shapeBlend.triangle * intensity, 0, 1.45),
+  };
+}
+
 function getShapeLanguage() {
   const intensity = Number.parseFloat(shapeIntensityControl.value) || 1;
   const rigidityName = shapeRigidityControl.value;
-  const rigidityValues = { organic: 0.18, balanced: 0.58, geometric: 1 };
-  const rigidity = rigidityValues[rigidityName] ?? rigidityValues.balanced;
   const contourVariationName = contourVariationControl.value;
-  const contourVariationValues = { clean: 0.008, natural: 0.035, expressive: 0.07 };
   const options = [
     { name: 'circle', enabled: cbCircle.checked, weight: Number.parseFloat(wCircle.value) || 0 },
     { name: 'square', enabled: cbSquare.checked, weight: Number.parseFloat(wSquare.value) || 0 },
@@ -1065,20 +1105,14 @@ function getShapeLanguage() {
   });
   const shapeBlend = { ...ratios };
 
-  return {
+  return completeShapeLanguage({
     intensity,
-    rigidity,
     rigidityName,
     contourVariationName,
-    contourVariation: contourVariationValues[contourVariationName]
-      ?? contourVariationValues.natural,
     shapeBlend,
     massBias: massBiasControl.value,
     taperDirection: taperDirectionControl.value,
-    circleStrength: clamp(shapeBlend.circle * intensity, 0, 1.45),
-    squareStrength: clamp(shapeBlend.square * intensity, 0, 1.45),
-    triangleStrength: clamp(shapeBlend.triangle * intensity, 0, 1.45),
-  };
+  });
 }
 
 function makeMass(name, start, end, startWidth, endWidth, taperDirection = 'toEnd', options = {}) {
@@ -1214,7 +1248,7 @@ function buildDefaultSkeleton(proportions) {
   const pelvisWidthScale = proportions.pelvisWidth;
   const legLengthScale = proportions.legLength;
   const shoulderWidthScale = proportions.shoulderWidth;
-  const cx = canvas.width / 2;
+  const cx = singleCanvasSize.width / 2;
   const top = 38;
 
   const headHeight = 76 * headSize;
@@ -1314,14 +1348,14 @@ function buildDefaultSkeleton(proportions) {
   };
 }
 
-function applyPoseOffsets(skeleton) {
+function applyPoseOffsets(skeleton, offsetMap = poseOffsets) {
   const posedSkeleton = Object.fromEntries(
     Object.entries(skeleton).map(([name, point]) => [name, { ...point }]),
   );
 
   // Moving the pelvis centre shifts the pelvis and hip anchors as one
   // structural unit. Knees and ankles remain independent landmark edits.
-  const pelvisOffset = poseOffsets.pelvisCenter;
+  const pelvisOffset = offsetMap.pelvisCenter;
   ['pelvisCenter', 'torsoBottom', 'pelvisTop', 'pelvisBottom', 'leftHip', 'rightHip'].forEach(name => {
     posedSkeleton[name].x += pelvisOffset.x;
     posedSkeleton[name].y += pelvisOffset.y;
@@ -1329,7 +1363,7 @@ function applyPoseOffsets(skeleton) {
 
   // The head anchor is a translation control: both head endpoints move by
   // the same amount, so Head Size remains entirely proportion-driven.
-  const headOffset = poseOffsets.headAnchor;
+  const headOffset = offsetMap.headAnchor;
   ['headAnchor', 'headTop', 'headBottom'].forEach(name => {
     posedSkeleton[name].x += headOffset.x;
     posedSkeleton[name].y += headOffset.y;
@@ -1338,8 +1372,8 @@ function applyPoseOffsets(skeleton) {
   editableJointNames
     .filter(name => name !== 'headAnchor' && name !== 'pelvisCenter')
     .forEach(name => {
-      posedSkeleton[name].x += poseOffsets[name].x;
-      posedSkeleton[name].y += poseOffsets[name].y;
+      posedSkeleton[name].x += offsetMap[name].x;
+      posedSkeleton[name].y += offsetMap[name].y;
     });
 
   return posedSkeleton;
@@ -1973,18 +2007,35 @@ function getMassBounds(masses, accents = []) {
   return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 }
 
-function getFrameTransform(masses, accents = []) {
-  const margin = 24;
+function getFrameTransformForRect(
+  masses,
+  accents,
+  frame,
+  margin = 24,
+  allowUpscale = false,
+) {
   const bounds = getMassBounds(masses, accents);
   const scale = Math.min(
-    1,
-    (canvas.width - margin * 2) / bounds.width,
-    (canvas.height - margin * 2) / bounds.height,
+    allowUpscale ? Infinity : 1,
+    (frame.width - margin * 2) / bounds.width,
+    (frame.height - margin * 2) / bounds.height,
   );
-  const offsetX = (canvas.width - bounds.width * scale) / 2 - bounds.minX * scale;
-  const offsetY = (canvas.height - bounds.height * scale) / 2 - bounds.minY * scale;
+  const offsetX = frame.x
+    + (frame.width - bounds.width * scale) / 2
+    - bounds.minX * scale;
+  const offsetY = frame.y
+    + (frame.height - bounds.height * scale) / 2
+    - bounds.minY * scale;
 
   return { scale, offsetX, offsetY };
+}
+
+function getFrameTransform(masses, accents = []) {
+  return getFrameTransformForRect(
+    masses,
+    accents,
+    { x: 0, y: 0, width: canvas.width, height: canvas.height },
+  );
 }
 
 function transformPoint(point, transform) {
@@ -2709,41 +2760,134 @@ function getCurrentProportions() {
   };
 }
 
-function renderSilhouette() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+function clonePoseOffsetMap(offsetMap = poseOffsets) {
+  return Object.fromEntries(
+    Object.entries(offsetMap).map(([name, offset]) => [name, { ...offset }]),
+  );
+}
 
-  if (!currentShapeLanguage || !currentMassVariation) {
-    currentPoseView = null;
-    return;
+function cloneAccentSettings(settings) {
+  return {
+    ...settings,
+    anchors: { ...settings.anchors },
+  };
+}
+
+function createSilhouetteModel({
+  seed,
+  proportions,
+  language,
+  accentSettings,
+  poseOffsetMap,
+  massVariation = null,
+}) {
+  if (!language) return null;
+
+  const random = createSeededRandom(seed);
+  const variation = massVariation || createMassVariation(language, random, seed);
+  const skeleton = applyPoseOffsets(
+    buildDefaultSkeleton(proportions),
+    poseOffsetMap,
+  );
+  const masses = buildBodyMasses(proportions, skeleton, variation, language);
+  const accentVariation = createAttachedAccentVariation(
+    accentSettings,
+    random,
+    masses,
+    skeleton,
+    language,
+  );
+
+  return {
+    seed,
+    proportions,
+    language,
+    massVariation: variation,
+    accentVariation,
+    poseOffsetMap,
+  };
+}
+
+function renderSilhouetteModel(model, {
+  width,
+  height,
+  margin = 24,
+  allowUpscale = false,
+  showDebug = false,
+  showPoseEditor = false,
+  updatePoseView = false,
+} = {}) {
+  const targetWidth = width ?? canvas.width;
+  const targetHeight = height ?? canvas.height;
+  ctx.clearRect(0, 0, targetWidth, targetHeight);
+
+  if (!model?.language || !model?.massVariation) {
+    if (updatePoseView) currentPoseView = null;
+    return null;
   }
 
-  const proportions = getCurrentProportions();
-  const skeleton = applyPoseOffsets(buildDefaultSkeleton(proportions));
-  const rawMasses = buildBodyMasses(proportions, skeleton, currentMassVariation, currentShapeLanguage);
-  const rawAccents = getAccentRenderData(rawMasses, skeleton, currentAccentVariation);
-  const frameTransform = getFrameTransform(rawMasses, rawAccents);
+  const skeleton = applyPoseOffsets(
+    buildDefaultSkeleton(model.proportions),
+    model.poseOffsetMap,
+  );
+  const rawMasses = buildBodyMasses(
+    model.proportions,
+    skeleton,
+    model.massVariation,
+    model.language,
+  );
+  const rawAccents = getAccentRenderData(rawMasses, skeleton, model.accentVariation);
+  const frameTransform = getFrameTransformForRect(
+    rawMasses,
+    rawAccents,
+    { x: 0, y: 0, width: targetWidth, height: targetHeight },
+    margin,
+    allowUpscale,
+  );
   const masses = fitMassesToFrame(rawMasses, frameTransform);
   const accents = transformAccents(rawAccents, frameTransform);
   const fittedSkeleton = transformSkeleton(skeleton, frameTransform);
-  currentPoseView = { landmarks: fittedSkeleton, scale: frameTransform.scale };
+
+  if (updatePoseView) {
+    currentPoseView = { landmarks: fittedSkeleton, scale: frameTransform.scale };
+  }
 
   ctx.save();
   ctx.fillStyle = '#111111';
   masses.forEach(mass => {
-    traceMassPath(mass, currentShapeLanguage);
+    traceMassPath(mass, model.language);
     ctx.fill();
   });
   drawMassTransitions(masses);
   drawAccents(accents);
   ctx.restore();
 
-  if (debugToggle && debugToggle.checked) {
-    drawDebugOverlay(masses, currentShapeLanguage);
+  if (showDebug) drawDebugOverlay(masses, model.language);
+  if (showPoseEditor) drawPoseEditor(fittedSkeleton);
+
+  return { masses, accents, fittedSkeleton, frameTransform };
+}
+
+function renderSilhouette() {
+  if (!currentShapeLanguage || !currentMassVariation) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    currentPoseView = null;
+    return;
   }
 
-  if (editPoseToggle.checked) {
-    drawPoseEditor(fittedSkeleton);
-  }
+  renderSilhouetteModel({
+    proportions: getCurrentProportions(),
+    language: currentShapeLanguage,
+    massVariation: currentMassVariation,
+    accentVariation: currentAccentVariation,
+    poseOffsetMap: poseOffsets,
+  }, {
+    width: canvas.width,
+    height: canvas.height,
+    showDebug: Boolean(debugToggle?.checked),
+    showPoseEditor: editPoseToggle.checked,
+    updatePoseView: true,
+  });
 }
 
 function generateSilhouette(requestedSeed) {
@@ -2752,33 +2896,334 @@ function generateSilhouette(requestedSeed) {
   const seed = Number.isInteger(requestedSeed)
     ? requestedSeed >>> 0
     : createGenerationSeed();
-  const random = createSeededRandom(seed);
+  const model = createSilhouetteModel({
+    seed,
+    proportions: getCurrentProportions(),
+    language: getShapeLanguage(),
+    accentSettings: getAccentSettings(),
+    poseOffsetMap: poseOffsets,
+  });
 
-  currentShapeLanguage = getShapeLanguage();
-  currentMassVariation = currentShapeLanguage
-    ? createMassVariation(currentShapeLanguage, random, seed)
-    : null;
-  if (currentShapeLanguage && currentMassVariation) {
-    const proportions = getCurrentProportions();
-    const skeleton = applyPoseOffsets(buildDefaultSkeleton(proportions));
-    const masses = buildBodyMasses(
-      proportions,
-      skeleton,
-      currentMassVariation,
-      currentShapeLanguage,
-    );
-    currentAccentVariation = createAttachedAccentVariation(
-      getAccentSettings(),
-      random,
-      masses,
-      skeleton,
-      currentShapeLanguage,
-    );
-  } else {
-    currentAccentVariation = [];
-  }
+  currentShapeLanguage = model?.language ?? null;
+  currentMassVariation = model?.massVariation ?? null;
+  currentAccentVariation = model?.accentVariation ?? [];
   canvas.dataset.seed = String(seed);
   renderSilhouette();
+}
+
+function chooseRandomItem(items, random) {
+  return items[Math.floor(random() * items.length)];
+}
+
+function createRandomizedShapeLanguage(baseLanguage, random, includeContourVariation) {
+  const rawBlend = {
+    circle: 0.12 + random() ** 1.35,
+    square: 0.12 + random() ** 1.35,
+    triangle: 0.12 + random() ** 1.35,
+  };
+  const dominantShape = chooseRandomItem(['circle', 'square', 'triangle'], random);
+  rawBlend[dominantShape] += randomBetween(0.35, 0.85, random);
+  const total = rawBlend.circle + rawBlend.square + rawBlend.triangle;
+  const shapeBlend = {
+    circle: rawBlend.circle / total,
+    square: rawBlend.square / total,
+    triangle: rawBlend.triangle / total,
+  };
+
+  return completeShapeLanguage({
+    intensity: chooseRandomItem([0.55, 1, 1.45], random),
+    rigidityName: chooseRandomItem(['organic', 'balanced', 'geometric'], random),
+    contourVariationName: includeContourVariation
+      ? chooseRandomItem(['clean', 'natural', 'expressive'], random)
+      : baseLanguage.contourVariationName,
+    shapeBlend,
+    massBias: chooseRandomItem(['top', 'balanced', 'bottom'], random),
+    taperDirection: chooseRandomItem(['top', 'neutral', 'bottom'], random),
+  });
+}
+
+function createRandomizedProportions(random) {
+  const style = proportionStyles[
+    chooseRandomItem(Object.keys(proportionStyles), random)
+  ];
+
+  return Object.fromEntries(
+    Object.entries(style.ranges).map(([name, [minimum, maximum]]) => [
+      name,
+      randomBetween(minimum, maximum, random),
+    ]),
+  );
+}
+
+function createRandomizedPoseOffsets(baseOffsets, random, preserveSymmetry) {
+  const offsets = clonePoseOffsetMap(baseOffsets);
+  const addJitter = (name, xAmount, yAmount) => {
+    offsets[name].x += randomBetween(-xAmount, xAmount, random);
+    offsets[name].y += randomBetween(-yAmount, yAmount, random);
+  };
+
+  addJitter('headAnchor', 8, 7);
+  addJitter('neckAnchor', 5, 6);
+  addJitter('pelvisCenter', 6, 7);
+
+  const pairedJoints = [
+    ['leftShoulder', 'rightShoulder', 10, 9],
+    ['leftElbow', 'rightElbow', 17, 15],
+    ['leftWrist', 'rightWrist', 22, 18],
+    ['leftHip', 'rightHip', 9, 8],
+    ['leftKnee', 'rightKnee', 15, 15],
+    ['leftAnkle', 'rightAnkle', 18, 14],
+  ];
+
+  pairedJoints.forEach(([leftName, rightName, xAmount, yAmount]) => {
+    const xJitter = randomBetween(-xAmount, xAmount, random);
+    const yJitter = randomBetween(-yAmount, yAmount, random);
+    offsets[leftName].x += xJitter;
+    offsets[leftName].y += yJitter;
+
+    if (preserveSymmetry) {
+      offsets[rightName].x -= xJitter;
+      offsets[rightName].y += yJitter;
+    } else {
+      offsets[rightName].x += randomBetween(-xAmount, xAmount, random);
+      offsets[rightName].y += randomBetween(-yAmount, yAmount, random);
+    }
+  });
+
+  return offsets;
+}
+
+function createRandomizedAccentSettings(baseSettings, random, broadenShapeType) {
+  const settings = cloneAccentSettings(baseSettings);
+  const availableShapes = ['circle', 'square', 'triangle'];
+  if (currentCustomAccentMotif) availableShapes.push('custom');
+
+  if (broadenShapeType) {
+    settings.shape = chooseRandomItem(availableShapes, random);
+    settings.customMotif = settings.shape === 'custom'
+      ? currentCustomAccentMotif
+      : null;
+  }
+
+  const anchorNames = Object.keys(settings.anchors);
+  settings.anchors = Object.fromEntries(
+    anchorNames.map(name => [name, random() < 0.58]),
+  );
+  if (!Object.values(settings.anchors).some(Boolean)) {
+    settings.anchors[chooseRandomItem(anchorNames, random)] = true;
+  }
+
+  settings.maxCount = 1 + Math.floor(random() * 3);
+  settings.symmetry = random() < 0.5;
+  settings.mode = chooseRandomItem(['additive', 'replace', 'mixed'], random);
+  settings.breakStrength = chooseRandomItem(['subtle', 'medium', 'strong'], random);
+  settings.breakFraction = {
+    subtle: 0.26,
+    medium: 0.48,
+    strong: 0.7,
+  }[settings.breakStrength];
+  settings.rotationRange = chooseRandomItem([10, 30, 60, 90], random);
+  settings.allowRandomFlip = random() < 0.65;
+
+  return settings;
+}
+
+function getBatchGridLayout(count) {
+  const commonLayouts = {
+    4: { columns: 2, rows: 2 },
+    6: { columns: 3, rows: 2 },
+    9: { columns: 3, rows: 3 },
+    12: { columns: 4, rows: 3 },
+    16: { columns: 4, rows: 4 },
+    20: { columns: 5, rows: 4 },
+    24: { columns: 6, rows: 4 },
+    30: { columns: 6, rows: 5 },
+  };
+  if (commonLayouts[count]) return commonLayouts[count];
+
+  let bestLayout = null;
+  for (let rows = 1; rows <= count; rows += 1) {
+    const columns = Math.ceil(count / rows);
+    if (columns < rows) continue;
+
+    const emptyCells = columns * rows - count;
+    const gridRatio = columns / rows;
+    const score = Math.abs(gridRatio - 1.35) + emptyCells * 0.24;
+    if (!bestLayout || score < bestLayout.score) {
+      bestLayout = { columns, rows, score };
+    }
+  }
+
+  return {
+    columns: bestLayout?.columns ?? 1,
+    rows: bestLayout?.rows ?? count,
+  };
+}
+
+function renderBatchSheet(models) {
+  const count = models.length;
+  batchContext.save();
+  batchContext.fillStyle = '#e8e7e3';
+  batchContext.fillRect(0, 0, batchCanvas.width, batchCanvas.height);
+
+  if (count === 0) {
+    batchContext.restore();
+    return;
+  }
+
+  const { columns, rows } = getBatchGridLayout(count);
+  const outerMargin = 36;
+  const gap = count >= 20 ? 12 : 18;
+  const availableWidth = batchCanvas.width - outerMargin * 2 - gap * (columns - 1);
+  const availableHeight = batchCanvas.height - outerMargin * 2 - gap * (rows - 1);
+  const cellWidth = availableWidth / columns;
+  const cellHeight = availableHeight / rows;
+  const renderWidth = Math.max(1, Math.round(cellWidth));
+  const renderHeight = Math.max(1, Math.round(cellHeight));
+  const previousContext = ctx;
+
+  batchStagingCanvas.width = renderWidth;
+  batchStagingCanvas.height = renderHeight;
+  ctx = batchStagingContext;
+
+  try {
+    models.forEach((model, index) => {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      const cellX = outerMargin + column * (cellWidth + gap);
+      const cellY = outerMargin + row * (cellHeight + gap);
+      const fitMargin = Math.max(8, Math.min(renderWidth, renderHeight) * 0.055);
+
+      batchContext.fillStyle = '#ffffff';
+      batchContext.fillRect(cellX, cellY, cellWidth, cellHeight);
+      renderSilhouetteModel(model, {
+        width: renderWidth,
+        height: renderHeight,
+        margin: fitMargin,
+        allowUpscale: true,
+      });
+      batchContext.drawImage(
+        batchStagingCanvas,
+        cellX,
+        cellY,
+        cellWidth,
+        cellHeight,
+      );
+    });
+  } finally {
+    ctx = previousContext;
+    batchContext.restore();
+  }
+}
+
+function generateBatchSilhouettes() {
+  const count = clamp(Number.parseInt(batchCountControl.value, 10) || 9, 2, 30);
+  batchCountControl.value = String(count);
+  const variationMode = batchVariationModeControl.value;
+  const randomizationScope = randomizationScopeControl.value;
+  const batchSeed = createGenerationSeed();
+  const baseLanguage = getShapeLanguage();
+  const baseProportions = getCurrentProportions();
+  const basePoseOffsets = clonePoseOffsetMap();
+  const baseAccentSettings = getAccentSettings();
+
+  if (!baseLanguage) {
+    currentBatchModels = [];
+    renderBatchSheet(currentBatchModels);
+    return;
+  }
+
+  const sharedBodyRandom = createSeededRandom(batchSeed ^ 0xA53A9E21);
+  const sharedMassVariation = variationMode === 'randomized'
+    && randomizationScope === 'accent'
+    && baseLanguage
+    ? createMassVariation(baseLanguage, sharedBodyRandom, batchSeed)
+    : null;
+  const models = [];
+
+  for (let index = 0; index < count; index += 1) {
+    const seed = (batchSeed + Math.imul(index + 1, 0x9E3779B9)) >>> 0;
+    const settingsRandom = createSeededRandom(seed ^ 0x85EBCA6B);
+    let language = baseLanguage;
+    let proportions = { ...baseProportions };
+    let modelPoseOffsets = clonePoseOffsetMap(basePoseOffsets);
+    let accentSettings = cloneAccentSettings(baseAccentSettings);
+    let massVariation = null;
+
+    if (variationMode === 'randomized') {
+      if (randomizationScope === 'accent') {
+        accentSettings = createRandomizedAccentSettings(
+          baseAccentSettings,
+          settingsRandom,
+          false,
+        );
+        massVariation = sharedMassVariation;
+      } else {
+        language = createRandomizedShapeLanguage(
+          baseLanguage,
+          settingsRandom,
+          randomizationScope === 'everything',
+        );
+        proportions = createRandomizedProportions(settingsRandom);
+
+        if (randomizationScope === 'everything') {
+          modelPoseOffsets = createRandomizedPoseOffsets(
+            basePoseOffsets,
+            settingsRandom,
+            symmetryToggle.checked,
+          );
+          accentSettings = createRandomizedAccentSettings(
+            baseAccentSettings,
+            settingsRandom,
+            true,
+          );
+        }
+      }
+    }
+
+    const model = createSilhouetteModel({
+      seed,
+      proportions,
+      language,
+      accentSettings,
+      poseOffsetMap: modelPoseOffsets,
+      massVariation,
+    });
+    if (model) models.push(model);
+  }
+
+  currentBatchModels = models;
+  batchCanvas.dataset.seed = String(batchSeed);
+  renderBatchSheet(models);
+}
+
+function updateBatchVariationControls() {
+  randomizationScopeRow.hidden = batchVariationModeControl.value !== 'randomized';
+}
+
+function updateGenerationMode() {
+  const batchMode = generationModeControl.value === 'batch';
+  batchControls.hidden = !batchMode;
+  canvas.hidden = batchMode;
+  batchCanvas.hidden = !batchMode;
+  workspaceSymmetryControl.hidden = batchMode;
+  workspaceTitle.textContent = batchMode ? 'Silhouette sheet' : 'Single blockout';
+  workspaceCanvasSize.textContent = batchMode ? '1920 × 1080' : '600 × 700';
+  generateButton.textContent = batchMode ? 'Generate Silhouette Sheet' : 'Generate Silhouette';
+
+  if (batchMode) {
+    renderBatchSheet(currentBatchModels);
+  } else {
+    renderSilhouette();
+  }
+}
+
+function generateFromCurrentMode() {
+  if (generationModeControl.value === 'batch') {
+    generateBatchSilhouettes();
+  } else {
+    generateSilhouette();
+  }
 }
 
 function getCanvasPointerPosition(event) {
@@ -2890,7 +3335,9 @@ proportionStyleControl.addEventListener('change', () => {
   applyProportionStyle(proportionStyleControl.value);
 });
 randomiseProportionsButton.addEventListener('click', randomiseProportions);
-generateButton.addEventListener('click', () => generateSilhouette());
+generateButton.addEventListener('click', generateFromCurrentMode);
+generationModeControl.addEventListener('change', updateGenerationMode);
+batchVariationModeControl.addEventListener('change', updateBatchVariationControls);
 symmetryToggle.addEventListener('change', updateSymmetryState);
 accentSymmetryToggle.addEventListener('change', updateAccentSymmetryState);
 inheritAccentShapeLanguageToggle.addEventListener('change', updateAccentInheritanceState);
@@ -2915,6 +3362,8 @@ updateSymmetryState();
 updateAccentSymmetryState();
 updateAccentInheritanceState();
 updateCustomAccentControls();
+updateBatchVariationControls();
 normaliseAccentScaleInputs();
 applyProportionStyle(proportionStyleControl.value);
 generateSilhouette();
+updateGenerationMode();

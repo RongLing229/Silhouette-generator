@@ -448,6 +448,29 @@ input[type="checkbox"]:focus-visible {
   gap: 0.65rem;
 }
 
+.batch-controls {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.25rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid #d7d5ce;
+}
+
+.batch-controls[hidden],
+.select-row[hidden] {
+  display: none;
+}
+
+.batch-count-input {
+  width: 5.25rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #c9c7c0;
+  border-radius: 6px;
+  background: #faf9f6;
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+
 button {
   width: 100%;
   margin-top: 0;
@@ -567,7 +590,8 @@ button:active {
   color: #85827a;
 }
 
-#drawCanvas {
+#drawCanvas,
+#batchCanvas {
   display: block;
   width: auto;
   max-width: 100%;
@@ -577,6 +601,16 @@ button:active {
   border-radius: 3px;
   background: #ffffff;
   box-shadow: 0 12px 30px rgba(45, 43, 38, 0.12);
+}
+
+#batchCanvas {
+  aspect-ratio: 16 / 9;
+}
+
+#drawCanvas[hidden],
+#batchCanvas[hidden],
+.symmetry-control[hidden] {
+  display: none;
 }
 
 #drawCanvas.pose-editing {
@@ -608,7 +642,8 @@ button:active {
     min-height: 0;
   }
 
-  #drawCanvas {
+  #drawCanvas,
+  #batchCanvas {
     max-height: calc(46vh - 6rem);
   }
 }
