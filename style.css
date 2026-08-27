@@ -50,6 +50,70 @@ select {
   padding-bottom: 0.25rem;
 }
 
+.workflow-mode-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: -0.35rem 0;
+  padding: 0.35rem 0;
+  background: #f7f6f2;
+}
+
+.workflow-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #c9c7c0;
+  border-radius: 10px;
+  background: #e8e6df;
+}
+
+button.workflow-mode-option {
+  min-width: 0;
+  margin: 0;
+  padding: 0.62rem 0.35rem;
+  border-radius: 7px;
+  color: #5d5b55;
+  background: transparent;
+  font-size: 0.76rem;
+  line-height: 1.1;
+  box-shadow: none;
+}
+
+button.workflow-mode-option:hover {
+  color: #22211e;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+button.workflow-mode-option.is-active {
+  color: #ffffff;
+  background: #171717;
+}
+
+.workflow-controls {
+  display: grid;
+  gap: 1.35rem;
+  min-width: 0;
+}
+
+.workflow-controls[hidden] {
+  display: none;
+}
+
+.sheet-mode-controls {
+  align-content: start;
+}
+
+.sheet-control-card {
+  padding: 1rem;
+}
+
+.sheet-controls-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
 .eyebrow {
   margin: 0 0 0.45rem;
   color: #77756e;
@@ -448,15 +512,6 @@ input[type="checkbox"]:focus-visible {
   gap: 0.65rem;
 }
 
-.batch-controls {
-  display: grid;
-  gap: 0.65rem;
-  margin-top: 0.25rem;
-  padding-top: 0.8rem;
-  border-top: 1px solid #d7d5ce;
-}
-
-.batch-controls[hidden],
 .select-row[hidden] {
   display: none;
 }
@@ -492,8 +547,15 @@ button:active {
   transform: translateY(1px);
 }
 
+button:disabled {
+  color: #8b8982;
+  background: #e3e1db;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .primary-button {
-  margin-top: auto;
+  margin-top: 0;
 }
 
 .secondary-button {
@@ -507,6 +569,10 @@ button:active {
 
 .secondary-button:hover {
   background: #ffffff;
+}
+
+button:disabled:hover {
+  background: #e3e1db;
 }
 
 .workspace {

@@ -6,12 +6,19 @@ const batchContext = batchCanvas.getContext('2d');
 const workspaceTitle = document.getElementById('workspaceTitle');
 const workspaceCanvasSize = document.getElementById('workspaceCanvasSize');
 const workspaceSymmetryControl = document.getElementById('workspaceSymmetryControl');
-const generationModeControl = document.getElementById('generationMode');
-const batchControls = document.getElementById('batchControls');
+const singleModeButton = document.getElementById('singleModeButton');
+const sheetModeButton = document.getElementById('sheetModeButton');
+const singleModeControls = document.getElementById('singleModeControls');
+const sheetModeControls = document.getElementById('sheetModeControls');
 const batchCountControl = document.getElementById('batchCount');
 const batchVariationModeControl = document.getElementById('batchVariationMode');
 const randomizationScopeRow = document.getElementById('randomizationScopeRow');
 const randomizationScopeControl = document.getElementById('randomizationScope');
+const poseModeControl = document.getElementById('poseMode');
+const limbVariationControl = document.getElementById('limbVariation');
+const generateBatchButton = document.getElementById('generateBatchButton');
+const editSheetPoseButton = document.getElementById('editSheetPoseButton');
+const exportBatchButton = document.getElementById('exportBatchButton');
 const cbCircle = document.getElementById('shapeCircle');
 const cbSquare = document.getElementById('shapeSquare');
 const cbTriangle = document.getElementById('shapeTriangle');
@@ -277,6 +284,9 @@ const editableJointNames = [
 const poseOffsets = Object.fromEntries(
   editableJointNames.map(name => [name, { x: 0, y: 0 }]),
 );
+const sheetPoseOffsets = Object.fromEntries(
+  editableJointNames.map(name => [name, { x: 0, y: 0 }]),
+);
 const mirroredJointPairs = {
   leftShoulder: 'rightShoulder',
   rightShoulder: 'leftShoulder',
@@ -311,6 +321,10 @@ let activeAccentScaleMode = accentShapeTypeControl.value === 'custom'
 let currentPoseView = null;
 let activePoseJoint = null;
 let lastPointerPosition = null;
+let workflowMode = 'single';
+let isEditingSheetPose = false;
+let sheetPoseCustomized = false;
+let sheetPosePreviewModel = null;
 
 function updateProportionLabel(control, value) {
   if (value < normalSliderRange.min) {
@@ -1119,14 +1133,33 @@ function makeMass(name, start, end, startWidth, endWidth, taperDirection = 'toEn
   return { name, start, end, startWidth, endWidth, taperDirection, ...options };
 }
 
-function createProceduralContourProfile(language, random, massName) {
+function createProceduralContourProfile(
+  language,
+  random,
+  massName,
+  limbVariationStrength = 0,
+) {
   const { circle, square, triangle } = language.shapeBlend;
+  const isLimb = /Arm|Leg/.test(massName);
+  const limbExploration = isLimb ? 1 + limbVariationStrength * 0.2 : 1;
   const variationLevel = clamp(language.contourVariation / 0.07, 0, 1);
   const nodeCount = { clean: 2, natural: 3, expressive: 4 }[language.contourVariationName] ?? 3;
   const grammarScale = language.intensity * (0.72 + variationLevel * 0.28);
-  const circleAmplitude = circle * (0.055 + variationLevel * 0.025) * grammarScale;
-  const squareAmplitude = square * (0.035 + variationLevel * 0.03) * grammarScale;
-  const triangleAmplitude = triangle * (0.085 + variationLevel * 0.055) * grammarScale;
+  const circleAmplitude = circle
+    * (0.055 + variationLevel * 0.025)
+    * grammarScale
+    * (isLimb ? 1.18 : 1)
+    * limbExploration;
+  const squareAmplitude = square
+    * (0.035 + variationLevel * 0.03)
+    * grammarScale
+    * (isLimb ? 1.14 : 1)
+    * limbExploration;
+  const triangleAmplitude = triangle
+    * (0.085 + variationLevel * 0.055)
+    * grammarScale
+    * (isLimb ? 1.3 : 1)
+    * limbExploration;
   const cornerCandidates = Array.from({ length: nodeCount }, (_, index) => index)
     .filter(index => !(massName === 'torso' && index === nodeCount - 1))
     .filter(index => !(massName === 'pelvis' && index === 0));
@@ -1211,10 +1244,59 @@ function createProceduralContourProfile(language, random, massName) {
   };
 }
 
-function createMassVariation(language, random, seed) {
+function createMassVariation(language, random, seed, limbVariationStrength = 0) {
   const contourAmount = language.contourVariation;
   const distributionAmount = 0.02 + contourAmount * 0.6;
   const vary = amount => 1 + randomBetween(-amount, amount, random);
+  const limbMassAmount = (0.075 + contourAmount * 0.65) * limbVariationStrength;
+  const independentMassAmount = limbMassAmount * 0.42;
+  let upperArmMass = 1;
+  let forearmMass = 1;
+  let thighMass = 1;
+  let calfMass = 1;
+  let armLengthShift = 0;
+  let legLengthShift = 0;
+  let forearmEndScale = 1;
+  let calfEndScale = 1;
+
+  if (limbVariationStrength > 0) {
+    const armMassShift = randomBetween(-limbMassAmount, limbMassAmount, random);
+    const legMassShift = randomBetween(-limbMassAmount, limbMassAmount, random);
+    upperArmMass = clamp(
+      1 + armMassShift + randomBetween(-independentMassAmount, independentMassAmount, random),
+      0.62,
+      1.5,
+    );
+    forearmMass = clamp(
+      1 - armMassShift * 0.78
+        + randomBetween(-independentMassAmount, independentMassAmount, random),
+      0.62,
+      1.5,
+    );
+    thighMass = clamp(
+      1 + legMassShift + randomBetween(-independentMassAmount, independentMassAmount, random),
+      0.64,
+      1.52,
+    );
+    calfMass = clamp(
+      1 - legMassShift * 0.74
+        + randomBetween(-independentMassAmount, independentMassAmount, random),
+      0.62,
+      1.48,
+    );
+    armLengthShift = randomBetween(-0.105, 0.105, random) * limbVariationStrength;
+    legLengthShift = randomBetween(-0.12, 0.12, random) * limbVariationStrength;
+    forearmEndScale = clamp(
+      1 + randomBetween(-0.12, 0.12, random) * limbVariationStrength,
+      0.74,
+      1.26,
+    );
+    calfEndScale = clamp(
+      1 + randomBetween(-0.14, 0.14, random) * limbVariationStrength,
+      0.7,
+      1.28,
+    );
+  }
   const massNames = [
     'leftLowerLeg', 'rightLowerLeg',
     'leftUpperLeg', 'rightUpperLeg',
@@ -1223,7 +1305,10 @@ function createMassVariation(language, random, seed) {
     'pelvis', 'torso', 'neck', 'head',
   ];
   const contours = Object.fromEntries(
-    massNames.map(name => [name, createProceduralContourProfile(language, random, name)]),
+    massNames.map(name => [
+      name,
+      createProceduralContourProfile(language, random, name, limbVariationStrength),
+    ]),
   );
 
   // Broad mass shifts stay correlated and restrained. Finer irregularity is
@@ -1232,6 +1317,18 @@ function createMassVariation(language, random, seed) {
     upperMass: vary(distributionAmount),
     lowerMass: vary(distributionAmount),
     limbMass: vary(distributionAmount * 0.8),
+    upperArmMass,
+    forearmMass,
+    thighMass,
+    calfMass,
+    forearmEndScale,
+    calfEndScale,
+    limbLengths: {
+      upperArm: clamp(1 + armLengthShift, 0.78, 1.24),
+      forearm: clamp(1 - armLengthShift * 0.9, 0.78, 1.24),
+      thigh: clamp(1 + legLengthShift, 0.76, 1.26),
+      calf: clamp(1 - legLengthShift * 0.88, 0.76, 1.26),
+    },
     torsoTopBias: vary(contourAmount * 0.7),
     torsoBottomBias: vary(contourAmount * 0.55),
     headWidth: vary(distributionAmount * 0.8),
@@ -1241,7 +1338,7 @@ function createMassVariation(language, random, seed) {
   };
 }
 
-function buildDefaultSkeleton(proportions) {
+function buildDefaultSkeleton(proportions, variation = null) {
   const headSize = proportions.headSize;
   const torsoLengthScale = proportions.torsoLength;
   const torsoWidthScale = proportions.torsoWidth;
@@ -1276,8 +1373,14 @@ function buildDefaultSkeleton(proportions) {
   const leftShoulder = { x: cx - shoulderHalfWidth, y: shoulderY };
   const rightShoulder = { x: cx + shoulderHalfWidth, y: shoulderY };
 
-  const upperArmLength = 118;
-  const lowerArmLength = 124;
+  const limbLengths = variation?.limbLengths || {
+    upperArm: 1,
+    forearm: 1,
+    thigh: 1,
+    calf: 1,
+  };
+  const upperArmLength = 118 * limbLengths.upperArm;
+  const lowerArmLength = 124 * limbLengths.forearm;
   const armOutward = 0.5;
   const armDrop = Math.sqrt(1 - armOutward * armOutward);
   const leftElbow = {
@@ -1303,8 +1406,8 @@ function buildDefaultSkeleton(proportions) {
   const hipHalfWidth = basePelvisWidth * 0.27;
   const leftHip = { x: pelvisBottom.x - hipHalfWidth, y: pelvisBottom.y - 12 };
   const rightHip = { x: pelvisBottom.x + hipHalfWidth, y: pelvisBottom.y - 12 };
-  const upperLegLength = 158 * legLengthScale;
-  const lowerLegLength = 166 * legLengthScale;
+  const upperLegLength = 158 * legLengthScale * limbLengths.thigh;
+  const lowerLegLength = 166 * legLengthScale * limbLengths.calf;
   const kneeSpread = 0.08;
   const ankleSpread = 0.035;
   const leftKnee = {
@@ -1431,10 +1534,51 @@ function buildBodyMasses(proportions, skeleton, variation, language) {
   };
   const headWidth = 72 * proportions.headSize * variation.headWidth;
   const neckWidth = Math.max(18, Math.min(headWidth * 0.52, torsoTopWidth * 0.28));
-  const armWidth = 50 * limbUpperScale * variation.limbMass * contourFullness * bias.upper;
-  const elbowWidth = 40 * limbUpperScale * variation.limbMass * contourFullness * bias.upper;
-  const thighWidth = 76 * limbLowerScale * variation.lowerMass * contourFullness * bias.lower;
-  const kneeWidth = 50 * limbLowerScale * variation.limbMass * contourFullness * bias.lower;
+  const limbFullness = 1
+    + language.circleStrength * 0.16
+    + language.squareStrength * 0.035;
+  const triangleDistalTaper = 1 - clamp(language.triangleStrength * 0.18, 0, 0.25);
+  const squareWidthConsistency = clamp(language.squareStrength * 0.22, 0, 0.3);
+  const upperArmWidth = 50
+    * limbUpperScale
+    * variation.limbMass
+    * variation.upperArmMass
+    * limbFullness
+    * bias.upper;
+  const forearmBodyWidth = 42
+    * limbUpperScale
+    * variation.limbMass
+    * variation.forearmMass
+    * limbFullness
+    * bias.upper;
+  const naturalElbowWidth = (
+    upperArmWidth * 0.76 + forearmBodyWidth * 0.96
+  ) / 2;
+  const elbowWidth = naturalElbowWidth * (1 - squareWidthConsistency)
+    + ((upperArmWidth + forearmBodyWidth) / 2) * squareWidthConsistency;
+  const forearmEndWidth = forearmBodyWidth
+    * 0.58
+    * variation.forearmEndScale
+    * triangleDistalTaper;
+  const thighWidth = 76
+    * limbLowerScale
+    * variation.lowerMass
+    * variation.thighMass
+    * limbFullness
+    * bias.lower;
+  const calfBodyWidth = 54
+    * limbLowerScale
+    * variation.limbMass
+    * variation.calfMass
+    * limbFullness
+    * bias.lower;
+  const naturalKneeWidth = (thighWidth * 0.66 + calfBodyWidth * 0.96) / 2;
+  const kneeWidth = naturalKneeWidth * (1 - squareWidthConsistency)
+    + ((thighWidth + calfBodyWidth) / 2) * squareWidthConsistency;
+  const calfEndWidth = calfBodyWidth
+    * 0.56
+    * variation.calfEndScale
+    * triangleDistalTaper;
   const massOptions = (name, options = {}) => ({
     contour: variation.contours[name],
     ...options,
@@ -1443,12 +1587,12 @@ function buildBodyMasses(proportions, skeleton, variation, language) {
   return [
     makeMass(
       'leftLowerLeg', skeleton.leftKnee, skeleton.leftAnkle,
-      kneeWidth, kneeWidth * 0.58, 'toEnd',
+      kneeWidth, calfEndWidth, 'toEnd',
       massOptions('leftLowerLeg', { lockStartWidth: true, jointOverlap: true }),
     ),
     makeMass(
       'rightLowerLeg', skeleton.rightKnee, skeleton.rightAnkle,
-      kneeWidth, kneeWidth * 0.58, 'toEnd',
+      kneeWidth, calfEndWidth, 'toEnd',
       massOptions('rightLowerLeg', { lockStartWidth: true, jointOverlap: true }),
     ),
     makeMass(
@@ -1463,22 +1607,22 @@ function buildBodyMasses(proportions, skeleton, variation, language) {
     ),
     makeMass(
       'leftLowerArm', skeleton.leftElbow, skeleton.leftWrist,
-      elbowWidth, elbowWidth * 0.58, 'toEnd',
+      elbowWidth, forearmEndWidth, 'toEnd',
       massOptions('leftLowerArm', { lockStartWidth: true, jointOverlap: true }),
     ),
     makeMass(
       'rightLowerArm', skeleton.rightElbow, skeleton.rightWrist,
-      elbowWidth, elbowWidth * 0.58, 'toEnd',
+      elbowWidth, forearmEndWidth, 'toEnd',
       massOptions('rightLowerArm', { lockStartWidth: true, jointOverlap: true }),
     ),
     makeMass(
       'leftUpperArm', skeleton.leftShoulder, skeleton.leftElbow,
-      armWidth, elbowWidth, 'toEnd',
+      upperArmWidth, elbowWidth, 'toEnd',
       massOptions('leftUpperArm', { lockEndWidth: true, jointOverlap: true }),
     ),
     makeMass(
       'rightUpperArm', skeleton.rightShoulder, skeleton.rightElbow,
-      armWidth, elbowWidth, 'toEnd',
+      upperArmWidth, elbowWidth, 'toEnd',
       massOptions('rightUpperArm', { lockEndWidth: true, jointOverlap: true }),
     ),
     makeMass(
@@ -2112,12 +2256,13 @@ function getMassGeometry(mass, language) {
   const circleEvenness = {
     torso: 0.2,
     pelvis: 0.18,
-    limb: 0.1,
+    limb: 0.16,
     neck: 0.08,
     head: 0.12,
   }[region];
+  const squareEvenness = region === 'limb' ? 0.62 : 0.48;
   const evenness = clamp(
-    language.squareStrength * 0.48 + language.circleStrength * circleEvenness,
+    language.squareStrength * squareEvenness + language.circleStrength * circleEvenness,
     0,
     0.68,
   );
@@ -2132,7 +2277,7 @@ function getMassGeometry(mass, language) {
   const regionTaper = {
     torso: 0.2,
     pelvis: 0.16,
-    limb: 0.22,
+    limb: 0.31,
     neck: 0.12,
     head: 0.08,
   }[region];
@@ -2232,15 +2377,15 @@ function traceProfiledMass(geometry, language) {
   const regionCurve = {
     torso: 1.15,
     pelvis: 1.08,
-    limb: 0.72,
+    limb: 0.95,
     neck: 0.55,
     head: 1.2,
   }[region];
   const baseBend = 0.012
     + language.circleStrength * 0.14 * regionCurve
     + (1 - language.rigidity) * 0.025
-    - language.squareStrength * 0.022
-    - language.triangleStrength * 0.012;
+    - language.squareStrength * (region === 'limb' ? 0.055 : 0.022)
+    - language.triangleStrength * (region === 'limb' ? 0.02 : 0.012);
   const leftBend = clamp(baseBend + contour.leftCurve, -0.035, 0.26);
   const rightBend = clamp(baseBend + contour.rightCurve, -0.035, 0.26);
   const capRound = clamp(
@@ -2766,6 +2911,13 @@ function clonePoseOffsetMap(offsetMap = poseOffsets) {
   );
 }
 
+function copyPoseOffsetMap(sourceOffsets, targetOffsets) {
+  editableJointNames.forEach(name => {
+    targetOffsets[name].x = sourceOffsets[name].x;
+    targetOffsets[name].y = sourceOffsets[name].y;
+  });
+}
+
 function cloneAccentSettings(settings) {
   return {
     ...settings,
@@ -2780,13 +2932,19 @@ function createSilhouetteModel({
   accentSettings,
   poseOffsetMap,
   massVariation = null,
+  limbVariationStrength = 0,
 }) {
   if (!language) return null;
 
   const random = createSeededRandom(seed);
-  const variation = massVariation || createMassVariation(language, random, seed);
+  const variation = massVariation || createMassVariation(
+    language,
+    random,
+    seed,
+    limbVariationStrength,
+  );
   const skeleton = applyPoseOffsets(
-    buildDefaultSkeleton(proportions),
+    buildDefaultSkeleton(proportions, variation),
     poseOffsetMap,
   );
   const masses = buildBodyMasses(proportions, skeleton, variation, language);
@@ -2827,7 +2985,7 @@ function renderSilhouetteModel(model, {
   }
 
   const skeleton = applyPoseOffsets(
-    buildDefaultSkeleton(model.proportions),
+    buildDefaultSkeleton(model.proportions, model.massVariation),
     model.poseOffsetMap,
   );
   const rawMasses = buildBodyMasses(
@@ -2902,6 +3060,7 @@ function generateSilhouette(requestedSeed) {
     language: getShapeLanguage(),
     accentSettings: getAccentSettings(),
     poseOffsetMap: poseOffsets,
+    limbVariationStrength: getLimbVariationStrength(),
   });
 
   currentShapeLanguage = model?.language ?? null;
@@ -2955,24 +3114,30 @@ function createRandomizedProportions(random) {
   );
 }
 
-function createRandomizedPoseOffsets(baseOffsets, random, preserveSymmetry) {
+function createSheetPoseVariation(baseOffsets, random, preserveSymmetry) {
   const offsets = clonePoseOffsetMap(baseOffsets);
   const addJitter = (name, xAmount, yAmount) => {
     offsets[name].x += randomBetween(-xAmount, xAmount, random);
     offsets[name].y += randomBetween(-yAmount, yAmount, random);
   };
 
-  addJitter('headAnchor', 8, 7);
-  addJitter('neckAnchor', 5, 6);
-  addJitter('pelvisCenter', 6, 7);
+  // A small opposing shift between the upper body and pelvis suggests body
+  // tilt without replacing the artist's shared sheet pose.
+  const bodyTilt = randomBetween(-5, 5, random);
+  offsets.neckAnchor.x += bodyTilt;
+  offsets.headAnchor.x += bodyTilt * 1.35;
+  offsets.pelvisCenter.x -= bodyTilt * 0.35;
+  addJitter('headAnchor', 2.5, 3);
+  addJitter('neckAnchor', 1.5, 2.5);
+  addJitter('pelvisCenter', 2, 3);
 
   const pairedJoints = [
-    ['leftShoulder', 'rightShoulder', 10, 9],
-    ['leftElbow', 'rightElbow', 17, 15],
-    ['leftWrist', 'rightWrist', 22, 18],
-    ['leftHip', 'rightHip', 9, 8],
-    ['leftKnee', 'rightKnee', 15, 15],
-    ['leftAnkle', 'rightAnkle', 18, 14],
+    ['leftShoulder', 'rightShoulder', 4, 4],
+    ['leftElbow', 'rightElbow', 10, 9],
+    ['leftWrist', 'rightWrist', 14, 11],
+    ['leftHip', 'rightHip', 3, 3],
+    ['leftKnee', 'rightKnee', 9, 9],
+    ['leftAnkle', 'rightAnkle', 12, 8],
   ];
 
   pairedJoints.forEach(([leftName, rightName, xAmount, yAmount]) => {
@@ -3060,11 +3225,44 @@ function getBatchGridLayout(count) {
   };
 }
 
+function getLimbVariationStrength() {
+  return {
+    low: 0.45,
+    medium: 1,
+    high: 1.6,
+  }[limbVariationControl.value] ?? 1;
+}
+
+function mergeLimbVariation(baseVariation, limbVariation) {
+  const limbMassNames = [
+    'leftUpperArm', 'rightUpperArm',
+    'leftLowerArm', 'rightLowerArm',
+    'leftUpperLeg', 'rightUpperLeg',
+    'leftLowerLeg', 'rightLowerLeg',
+  ];
+  const contours = { ...baseVariation.contours };
+  limbMassNames.forEach(name => {
+    contours[name] = limbVariation.contours[name];
+  });
+
+  return {
+    ...baseVariation,
+    upperArmMass: limbVariation.upperArmMass,
+    forearmMass: limbVariation.forearmMass,
+    thighMass: limbVariation.thighMass,
+    calfMass: limbVariation.calfMass,
+    forearmEndScale: limbVariation.forearmEndScale,
+    calfEndScale: limbVariation.calfEndScale,
+    limbLengths: { ...limbVariation.limbLengths },
+    contours,
+  };
+}
+
 function renderBatchSheet(models) {
   const count = models.length;
   batchContext.save();
-  batchContext.fillStyle = '#e8e7e3';
-  batchContext.fillRect(0, 0, batchCanvas.width, batchCanvas.height);
+  batchContext.clearRect(0, 0, batchCanvas.width, batchCanvas.height);
+  exportBatchButton.disabled = count === 0;
 
   if (count === 0) {
     batchContext.restore();
@@ -3094,14 +3292,19 @@ function renderBatchSheet(models) {
       const cellY = outerMargin + row * (cellHeight + gap);
       const fitMargin = Math.max(8, Math.min(renderWidth, renderHeight) * 0.055);
 
-      batchContext.fillStyle = '#ffffff';
-      batchContext.fillRect(cellX, cellY, cellWidth, cellHeight);
       renderSilhouetteModel(model, {
         width: renderWidth,
         height: renderHeight,
         margin: fitMargin,
         allowUpscale: true,
       });
+      // Normalize all rendered body and uploaded-motif pixels to true black
+      // while retaining their antialiased alpha edge.
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-in';
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, renderWidth, renderHeight);
+      ctx.restore();
       batchContext.drawImage(
         batchStagingCanvas,
         cellX,
@@ -3124,8 +3327,10 @@ function generateBatchSilhouettes() {
   const batchSeed = createGenerationSeed();
   const baseLanguage = getShapeLanguage();
   const baseProportions = getCurrentProportions();
-  const basePoseOffsets = clonePoseOffsetMap();
+  const basePoseOffsets = clonePoseOffsetMap(sheetPoseOffsets);
   const baseAccentSettings = getAccentSettings();
+  const limbVariationStrength = getLimbVariationStrength();
+  const varyPose = poseModeControl.value === 'variation';
 
   if (!baseLanguage) {
     currentBatchModels = [];
@@ -3137,7 +3342,12 @@ function generateBatchSilhouettes() {
   const sharedMassVariation = variationMode === 'randomized'
     && randomizationScope === 'accent'
     && baseLanguage
-    ? createMassVariation(baseLanguage, sharedBodyRandom, batchSeed)
+    ? createMassVariation(
+      baseLanguage,
+      sharedBodyRandom,
+      batchSeed,
+      0,
+    )
     : null;
   const models = [];
 
@@ -3157,7 +3367,14 @@ function generateBatchSilhouettes() {
           settingsRandom,
           false,
         );
-        massVariation = sharedMassVariation;
+        const limbRandom = createSeededRandom(seed ^ 0xC2B2AE35);
+        const limbVariation = createMassVariation(
+          baseLanguage,
+          limbRandom,
+          seed,
+          limbVariationStrength,
+        );
+        massVariation = mergeLimbVariation(sharedMassVariation, limbVariation);
       } else {
         language = createRandomizedShapeLanguage(
           baseLanguage,
@@ -3167,11 +3384,6 @@ function generateBatchSilhouettes() {
         proportions = createRandomizedProportions(settingsRandom);
 
         if (randomizationScope === 'everything') {
-          modelPoseOffsets = createRandomizedPoseOffsets(
-            basePoseOffsets,
-            settingsRandom,
-            symmetryToggle.checked,
-          );
           accentSettings = createRandomizedAccentSettings(
             baseAccentSettings,
             settingsRandom,
@@ -3181,6 +3393,14 @@ function generateBatchSilhouettes() {
       }
     }
 
+    if (varyPose) {
+      modelPoseOffsets = createSheetPoseVariation(
+        basePoseOffsets,
+        settingsRandom,
+        symmetryToggle.checked,
+      );
+    }
+
     const model = createSilhouetteModel({
       seed,
       proportions,
@@ -3188,6 +3408,7 @@ function generateBatchSilhouettes() {
       accentSettings,
       poseOffsetMap: modelPoseOffsets,
       massVariation,
+      limbVariationStrength,
     });
     if (model) models.push(model);
   }
@@ -3197,32 +3418,120 @@ function generateBatchSilhouettes() {
   renderBatchSheet(models);
 }
 
+function exportBatchSheetPNG() {
+  if (currentBatchModels.length === 0) return;
+
+  // Composite the finished sheet into one transparent bitmap before encoding.
+  // This produces one ordinary flattened PNG, never per-cell files or layers.
+  const exportCanvas = document.createElement('canvas');
+  exportCanvas.width = batchCanvas.width;
+  exportCanvas.height = batchCanvas.height;
+  const exportContext = exportCanvas.getContext('2d');
+  exportContext.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
+  exportContext.drawImage(batchCanvas, 0, 0);
+
+  exportCanvas.toBlob(blob => {
+    if (!blob) return;
+
+    const downloadUrl = URL.createObjectURL(blob);
+    const downloadLink = document.createElement('a');
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    downloadLink.href = downloadUrl;
+    downloadLink.download = `silhouette-sheet-${dateStamp}.png`;
+    downloadLink.click();
+    window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+  }, 'image/png');
+}
+
 function updateBatchVariationControls() {
   randomizationScopeRow.hidden = batchVariationModeControl.value !== 'randomized';
 }
 
-function updateGenerationMode() {
-  const batchMode = generationModeControl.value === 'batch';
-  batchControls.hidden = !batchMode;
-  canvas.hidden = batchMode;
-  batchCanvas.hidden = !batchMode;
-  workspaceSymmetryControl.hidden = batchMode;
-  workspaceTitle.textContent = batchMode ? 'Silhouette sheet' : 'Single blockout';
-  workspaceCanvasSize.textContent = batchMode ? '1920 × 1080' : '600 × 700';
-  generateButton.textContent = batchMode ? 'Generate Silhouette Sheet' : 'Generate Silhouette';
+function renderSheetPoseEditor() {
+  if (!sheetPosePreviewModel) return;
 
-  if (batchMode) {
+  renderSilhouetteModel({
+    ...sheetPosePreviewModel,
+    poseOffsetMap: sheetPoseOffsets,
+  }, {
+    width: canvas.width,
+    height: canvas.height,
+    showDebug: Boolean(debugToggle?.checked),
+    showPoseEditor: true,
+    updatePoseView: true,
+  });
+}
+
+function setSheetPoseEditing(shouldEdit) {
+  isEditingSheetPose = shouldEdit;
+  activePoseJoint = null;
+  lastPointerPosition = null;
+  canvas.classList.remove('pose-dragging');
+  canvas.classList.toggle('pose-editing', shouldEdit);
+  editSheetPoseButton.textContent = shouldEdit ? 'Done Editing Sheet Pose' : 'Edit Sheet Pose';
+  generateBatchButton.disabled = shouldEdit;
+
+  if (shouldEdit) {
+    const seed = createGenerationSeed();
+    sheetPosePreviewModel = createSilhouetteModel({
+      seed,
+      proportions: getCurrentProportions(),
+      language: getShapeLanguage(),
+      accentSettings: getAccentSettings(),
+      poseOffsetMap: sheetPoseOffsets,
+      limbVariationStrength: getLimbVariationStrength(),
+    });
+    canvas.hidden = false;
+    batchCanvas.hidden = true;
+    workspaceSymmetryControl.hidden = false;
+    workspaceTitle.textContent = 'Edit sheet pose';
+    workspaceCanvasSize.textContent = '600 × 700';
+    exportBatchButton.disabled = true;
+    renderSheetPoseEditor();
+    return;
+  }
+
+  sheetPosePreviewModel = null;
+  if (workflowMode === 'sheet') {
+    canvas.hidden = true;
+    batchCanvas.hidden = false;
+    workspaceSymmetryControl.hidden = true;
+    workspaceTitle.textContent = 'Silhouette sheet';
+    workspaceCanvasSize.textContent = '1920 × 1080';
     renderBatchSheet(currentBatchModels);
-  } else {
-    renderSilhouette();
   }
 }
 
-function generateFromCurrentMode() {
-  if (generationModeControl.value === 'batch') {
-    generateBatchSilhouettes();
+function setWorkflowMode(mode, force = false) {
+  if (!force && mode === workflowMode) return;
+  if (isEditingSheetPose) setSheetPoseEditing(false);
+
+  if (mode === 'sheet' && !sheetPoseCustomized) {
+    copyPoseOffsetMap(poseOffsets, sheetPoseOffsets);
+  }
+
+  workflowMode = mode;
+  const sheetMode = mode === 'sheet';
+  singleModeButton.classList.toggle('is-active', !sheetMode);
+  sheetModeButton.classList.toggle('is-active', sheetMode);
+  singleModeButton.setAttribute('aria-pressed', String(!sheetMode));
+  sheetModeButton.setAttribute('aria-pressed', String(sheetMode));
+  singleModeControls.hidden = sheetMode;
+  sheetModeControls.hidden = !sheetMode;
+  canvas.hidden = sheetMode;
+  batchCanvas.hidden = !sheetMode;
+  workspaceSymmetryControl.hidden = sheetMode;
+
+  if (sheetMode) {
+    canvas.classList.remove('pose-editing', 'pose-dragging');
+    workspaceTitle.textContent = 'Silhouette sheet';
+    workspaceCanvasSize.textContent = '1920 × 1080';
+    renderBatchSheet(currentBatchModels);
   } else {
-    generateSilhouette();
+    canvas.classList.toggle('pose-editing', editPoseToggle.checked);
+    workspaceTitle.textContent = 'Single design';
+    workspaceCanvasSize.textContent = '600 × 700';
+    renderSilhouette();
   }
 }
 
@@ -3252,8 +3561,16 @@ function findPoseJoint(point) {
   return closestJoint;
 }
 
+function isPoseEditingActive() {
+  return isEditingSheetPose || (workflowMode === 'single' && editPoseToggle.checked);
+}
+
+function getActivePoseOffsetMap() {
+  return isEditingSheetPose ? sheetPoseOffsets : poseOffsets;
+}
+
 function startPoseDrag(event) {
-  if (!editPoseToggle.checked) return;
+  if (!isPoseEditingActive()) return;
 
   const pointerPosition = getCanvasPointerPosition(event);
   const joint = findPoseJoint(pointerPosition);
@@ -3266,7 +3583,7 @@ function startPoseDrag(event) {
   event.preventDefault();
 }
 
-function mirrorPoseJoint(jointName) {
+function mirrorPoseJoint(jointName, offsetMap) {
   if (!symmetryToggle.checked) return;
 
   const mirroredName = mirroredJointPairs[jointName];
@@ -3275,8 +3592,8 @@ function mirrorPoseJoint(jointName) {
   // Default paired landmarks are mirrored around the character centre.
   // Negating the horizontal offset and copying the vertical offset preserves
   // that relationship without affecting centred head or spine landmarks.
-  poseOffsets[mirroredName].x = -poseOffsets[jointName].x;
-  poseOffsets[mirroredName].y = poseOffsets[jointName].y;
+  offsetMap[mirroredName].x = -offsetMap[jointName].x;
+  offsetMap[mirroredName].y = offsetMap[jointName].y;
 }
 
 function continuePoseDrag(event) {
@@ -3284,12 +3601,18 @@ function continuePoseDrag(event) {
 
   const pointerPosition = getCanvasPointerPosition(event);
   const scale = Math.max(0.001, currentPoseView.scale);
-  poseOffsets[activePoseJoint].x += (pointerPosition.x - lastPointerPosition.x) / scale;
-  poseOffsets[activePoseJoint].y += (pointerPosition.y - lastPointerPosition.y) / scale;
-  mirrorPoseJoint(activePoseJoint);
+  const activeOffsets = getActivePoseOffsetMap();
+  activeOffsets[activePoseJoint].x += (pointerPosition.x - lastPointerPosition.x) / scale;
+  activeOffsets[activePoseJoint].y += (pointerPosition.y - lastPointerPosition.y) / scale;
+  mirrorPoseJoint(activePoseJoint, activeOffsets);
   lastPointerPosition = pointerPosition;
 
-  renderSilhouette();
+  if (isEditingSheetPose) {
+    sheetPoseCustomized = true;
+    renderSheetPoseEditor();
+  } else {
+    renderSilhouette();
+  }
   event.preventDefault();
 }
 
@@ -3335,8 +3658,14 @@ proportionStyleControl.addEventListener('change', () => {
   applyProportionStyle(proportionStyleControl.value);
 });
 randomiseProportionsButton.addEventListener('click', randomiseProportions);
-generateButton.addEventListener('click', generateFromCurrentMode);
-generationModeControl.addEventListener('change', updateGenerationMode);
+generateButton.addEventListener('click', () => generateSilhouette());
+generateBatchButton.addEventListener('click', generateBatchSilhouettes);
+exportBatchButton.addEventListener('click', exportBatchSheetPNG);
+singleModeButton.addEventListener('click', () => setWorkflowMode('single'));
+sheetModeButton.addEventListener('click', () => setWorkflowMode('sheet'));
+editSheetPoseButton.addEventListener('click', () => {
+  setSheetPoseEditing(!isEditingSheetPose);
+});
 batchVariationModeControl.addEventListener('change', updateBatchVariationControls);
 symmetryToggle.addEventListener('change', updateSymmetryState);
 accentSymmetryToggle.addEventListener('change', updateAccentSymmetryState);
@@ -3366,4 +3695,4 @@ updateBatchVariationControls();
 normaliseAccentScaleInputs();
 applyProportionStyle(proportionStyleControl.value);
 generateSilhouette();
-updateGenerationMode();
+setWorkflowMode('single', true);

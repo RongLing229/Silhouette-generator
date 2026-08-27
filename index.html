@@ -15,6 +15,19 @@
           <p class="intro">Generate a strong, simple foundation to paint over and develop.</p>
         </header>
 
+        <div class="workflow-mode-sticky">
+          <div class="workflow-mode-switch" role="group" aria-label="Workspace mode">
+            <button id="singleModeButton" class="workflow-mode-option is-active" type="button" aria-pressed="true">
+              Single Design
+            </button>
+            <button id="sheetModeButton" class="workflow-mode-option" type="button" aria-pressed="false">
+              Silhouette Sheet
+            </button>
+          </div>
+        </div>
+
+        <div id="singleModeControls" class="workflow-controls">
+
         <details class="control-group control-section" open>
           <summary>Shape Language</summary>
           <div class="control-section-content">
@@ -197,41 +210,18 @@
         </details>
 
         <details class="control-group control-section" open>
-          <summary>Mass Generation</summary>
+          <summary>Limbs</summary>
           <div class="control-section-content">
-            <p class="group-hint">Create one editable blockout or a 1920 × 1080 exploration sheet.</p>
+            <p class="group-hint">Control how strongly arm and leg masses vary while keeping the current shape language coherent.</p>
 
-            <label class="select-row" for="generationMode">
-              <span>Generation Mode</span>
-              <select id="generationMode">
-                <option value="single" selected>Single</option>
-                <option value="batch">Batch</option>
+            <label class="select-row" for="limbVariation">
+              <span>Limb Variation</span>
+              <select id="limbVariation">
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
               </select>
             </label>
-
-            <div id="batchControls" class="batch-controls" hidden>
-              <label class="select-row" for="batchCount">
-                <span>Number of Silhouettes</span>
-                <input class="batch-count-input" type="number" id="batchCount" value="9" min="2" max="30" step="1">
-              </label>
-
-              <label class="select-row" for="batchVariationMode">
-                <span>Batch Variation Mode</span>
-                <select id="batchVariationMode">
-                  <option value="specified" selected>Specified</option>
-                  <option value="randomized">Randomized</option>
-                </select>
-              </label>
-
-              <label id="randomizationScopeRow" class="select-row" for="randomizationScope" hidden>
-                <span>Randomization Scope</span>
-                <select id="randomizationScope">
-                  <option value="accent">Accent only</option>
-                  <option value="shapeProportion" selected>Shape + Proportion</option>
-                  <option value="everything">Everything</option>
-                </select>
-              </label>
-            </div>
           </div>
         </details>
 
@@ -385,6 +375,55 @@
         </details>
 
         <button id="generateButton" class="primary-button" type="button">Generate Silhouette</button>
+        </div>
+
+        <div id="sheetModeControls" class="workflow-controls sheet-mode-controls" hidden>
+          <section class="control-group sheet-control-card" aria-labelledby="sheetControlsTitle">
+            <div class="control-section-content">
+              <div>
+                <p class="eyebrow">Batch exploration</p>
+                <h2 id="sheetControlsTitle" class="sheet-controls-title">Silhouette Sheet</h2>
+              </div>
+              <p class="group-hint">Uses the current Single Design as the base template for every sheet.</p>
+
+              <label class="select-row" for="batchCount">
+                <span>Number of Silhouettes</span>
+                <input class="batch-count-input" type="number" id="batchCount" value="9" min="2" max="30" step="1">
+              </label>
+
+              <label class="select-row" for="batchVariationMode">
+                <span>Batch Variation Mode</span>
+                <select id="batchVariationMode">
+                  <option value="specified" selected>Specified</option>
+                  <option value="randomized">Randomized</option>
+                </select>
+              </label>
+
+              <label id="randomizationScopeRow" class="select-row" for="randomizationScope" hidden>
+                <span>Randomization Scope</span>
+                <select id="randomizationScope">
+                  <option value="accent">Accent only</option>
+                  <option value="shapeProportion" selected>Shape + Proportion</option>
+                  <option value="everything">Everything</option>
+                </select>
+              </label>
+
+              <label class="select-row" for="poseMode">
+                <span>Pose Mode</span>
+                <select id="poseMode">
+                  <option value="same" selected>Same Pose</option>
+                  <option value="variation">Pose Variation</option>
+                </select>
+              </label>
+
+              <button id="editSheetPoseButton" class="secondary-button" type="button">Edit Sheet Pose</button>
+            </div>
+          </section>
+
+          <button id="generateBatchButton" class="primary-button" type="button">Generate Silhouette Sheet</button>
+          <button id="exportBatchButton" class="secondary-button" type="button" disabled>Export Sheet PNG</button>
+          <p class="group-hint">Exports one flattened 1920 × 1080 PNG with solid black silhouettes and transparent negative space.</p>
+        </div>
       </aside>
 
       <section class="workspace" aria-label="Silhouette workspace">
