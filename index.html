@@ -421,6 +421,10 @@
           </section>
 
           <button id="generateBatchButton" class="primary-button" type="button">Generate Silhouette Sheet</button>
+          <div class="sheet-iteration-actions">
+            <button id="rerollBatchButton" class="secondary-button" type="button" disabled>Reroll Unlocked</button>
+            <button id="clearBatchKeepsButton" class="secondary-button" type="button" disabled>Clear Keeps</button>
+          </div>
           <button id="exportBatchButton" class="secondary-button" type="button" disabled>Export Sheet PNG</button>
           <p class="group-hint">Exports one flattened 1920 × 1080 PNG with solid black silhouettes and transparent negative space.</p>
         </div>
@@ -443,6 +447,7 @@
           </label>
           <canvas id="drawCanvas" width="600" height="700" aria-label="Generated full-body silhouette"></canvas>
           <canvas id="batchCanvas" width="1920" height="1080" aria-label="Generated silhouette thumbnail sheet" hidden></canvas>
+          <div id="batchKeepOverlay" class="batch-keep-overlay" aria-label="Silhouette keep controls" hidden></div>
         </div>
       </section>
     </main>

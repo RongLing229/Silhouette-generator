@@ -17,8 +17,11 @@ const randomizationScopeControl = document.getElementById('randomizationScope');
 const poseModeControl = document.getElementById('poseMode');
 const limbVariationControl = document.getElementById('limbVariation');
 const generateBatchButton = document.getElementById('generateBatchButton');
+const rerollBatchButton = document.getElementById('rerollBatchButton');
+const clearBatchKeepsButton = document.getElementById('clearBatchKeepsButton');
 const editSheetPoseButton = document.getElementById('editSheetPoseButton');
 const exportBatchButton = document.getElementById('exportBatchButton');
+const batchKeepOverlay = document.getElementById('batchKeepOverlay');
 const cbCircle = document.getElementById('shapeCircle');
 const cbSquare = document.getElementById('shapeSquare');
 const cbTriangle = document.getElementById('shapeTriangle');
@@ -305,7 +308,7 @@ const mirroredJointPairs = {
 let currentMassVariation = null;
 let currentShapeLanguage = null;
 let currentAccentVariation = [];
-let currentBatchModels = [];
+let currentBatchItems = [];
 const singleCanvasSize = { width: 600, height: 700 };
 const batchStagingCanvas = document.createElement('canvas');
 const batchStagingContext = batchStagingCanvas.getContext('2d');
@@ -3258,24 +3261,109 @@ function mergeLimbVariation(baseVariation, limbVariation) {
   };
 }
 
-function renderBatchSheet(models) {
-  const count = models.length;
+function getBatchLayoutMetrics(count) {
+  const { columns, rows } = getBatchGridLayout(count);
+  const outerMargin = 36;
+  const gap = count >= 20 ? 12 : 18;
+  const availableWidth = batchCanvas.width - outerMargin * 2 - gap * (columns - 1);
+  const availableHeight = batchCanvas.height - outerMargin * 2 - gap * (rows - 1);
+
+  return {
+    columns,
+    rows,
+    outerMargin,
+    gap,
+    cellWidth: availableWidth / columns,
+    cellHeight: availableHeight / rows,
+  };
+}
+
+function updateBatchActionState() {
+  const hasItems = currentBatchItems.length > 0;
+  const hasKeptItems = currentBatchItems.some(item => item.kept);
+  const hasUnlockedItems = currentBatchItems.some(item => !item.kept);
+
+  exportBatchButton.disabled = !hasItems || isEditingSheetPose;
+  rerollBatchButton.disabled = !hasUnlockedItems || isEditingSheetPose;
+  clearBatchKeepsButton.disabled = !hasKeptItems || isEditingSheetPose;
+}
+
+function syncBatchKeepOverlayBounds() {
+  if (batchCanvas.hidden || workflowMode !== 'sheet' || isEditingSheetPose) return;
+
+  const canvasBounds = batchCanvas.getBoundingClientRect();
+  const stageBounds = batchCanvas.parentElement.getBoundingClientRect();
+  batchKeepOverlay.style.left = `${canvasBounds.left - stageBounds.left}px`;
+  batchKeepOverlay.style.top = `${canvasBounds.top - stageBounds.top}px`;
+  batchKeepOverlay.style.width = `${canvasBounds.width}px`;
+  batchKeepOverlay.style.height = `${canvasBounds.height}px`;
+}
+
+function toggleBatchItemKeep(index) {
+  const item = currentBatchItems[index];
+  if (!item) return;
+
+  item.kept = !item.kept;
+  renderBatchKeepOverlay(currentBatchItems);
+  updateBatchActionState();
+}
+
+function renderBatchKeepOverlay(items) {
+  batchKeepOverlay.replaceChildren();
+  if (items.length === 0) return;
+
+  const { columns, outerMargin, gap, cellWidth, cellHeight } = getBatchLayoutMetrics(
+    items.length,
+  );
+
+  items.forEach((item, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const cellX = outerMargin + column * (cellWidth + gap);
+    const cellY = outerMargin + row * (cellHeight + gap);
+    const cellControl = document.createElement('div');
+    const keepButton = document.createElement('button');
+    const lockIcon = document.createElement('span');
+
+    cellControl.className = `batch-cell-control${item.kept ? ' is-kept' : ''}`;
+    cellControl.style.left = `${cellX / batchCanvas.width * 100}%`;
+    cellControl.style.top = `${cellY / batchCanvas.height * 100}%`;
+    cellControl.style.width = `${cellWidth / batchCanvas.width * 100}%`;
+    cellControl.style.height = `${cellHeight / batchCanvas.height * 100}%`;
+
+    keepButton.className = 'batch-keep-button';
+    keepButton.type = 'button';
+    keepButton.setAttribute('aria-pressed', String(item.kept));
+    keepButton.setAttribute(
+      'aria-label',
+      `${item.kept ? 'Unlock' : 'Keep'} silhouette ${index + 1}`,
+    );
+    keepButton.title = item.kept ? 'Unlock silhouette' : 'Keep silhouette';
+    keepButton.addEventListener('click', () => toggleBatchItemKeep(index));
+
+    lockIcon.className = 'batch-lock-icon';
+    lockIcon.setAttribute('aria-hidden', 'true');
+    keepButton.append(lockIcon);
+    cellControl.append(keepButton);
+    batchKeepOverlay.append(cellControl);
+  });
+
+  window.requestAnimationFrame(syncBatchKeepOverlayBounds);
+}
+
+function renderBatchSheet(items) {
+  const count = items.length;
   batchContext.save();
   batchContext.clearRect(0, 0, batchCanvas.width, batchCanvas.height);
-  exportBatchButton.disabled = count === 0;
+  updateBatchActionState();
+  renderBatchKeepOverlay(items);
 
   if (count === 0) {
     batchContext.restore();
     return;
   }
 
-  const { columns, rows } = getBatchGridLayout(count);
-  const outerMargin = 36;
-  const gap = count >= 20 ? 12 : 18;
-  const availableWidth = batchCanvas.width - outerMargin * 2 - gap * (columns - 1);
-  const availableHeight = batchCanvas.height - outerMargin * 2 - gap * (rows - 1);
-  const cellWidth = availableWidth / columns;
-  const cellHeight = availableHeight / rows;
+  const { columns, outerMargin, gap, cellWidth, cellHeight } = getBatchLayoutMetrics(count);
   const renderWidth = Math.max(1, Math.round(cellWidth));
   const renderHeight = Math.max(1, Math.round(cellHeight));
   const previousContext = ctx;
@@ -3285,14 +3373,14 @@ function renderBatchSheet(models) {
   ctx = batchStagingContext;
 
   try {
-    models.forEach((model, index) => {
+    items.forEach((item, index) => {
       const column = index % columns;
       const row = Math.floor(index / columns);
       const cellX = outerMargin + column * (cellWidth + gap);
       const cellY = outerMargin + row * (cellHeight + gap);
       const fitMargin = Math.max(8, Math.min(renderWidth, renderHeight) * 0.055);
 
-      renderSilhouetteModel(model, {
+      renderSilhouetteModel(item.model, {
         width: renderWidth,
         height: renderHeight,
         margin: fitMargin,
@@ -3319,12 +3407,9 @@ function renderBatchSheet(models) {
   }
 }
 
-function generateBatchSilhouettes() {
-  const count = clamp(Number.parseInt(batchCountControl.value, 10) || 9, 2, 30);
-  batchCountControl.value = String(count);
+function createBatchGenerationContext(batchSeed = createGenerationSeed()) {
   const variationMode = batchVariationModeControl.value;
   const randomizationScope = randomizationScopeControl.value;
-  const batchSeed = createGenerationSeed();
   const baseLanguage = getShapeLanguage();
   const baseProportions = getCurrentProportions();
   const basePoseOffsets = clonePoseOffsetMap(sheetPoseOffsets);
@@ -3332,11 +3417,7 @@ function generateBatchSilhouettes() {
   const limbVariationStrength = getLimbVariationStrength();
   const varyPose = poseModeControl.value === 'variation';
 
-  if (!baseLanguage) {
-    currentBatchModels = [];
-    renderBatchSheet(currentBatchModels);
-    return;
-  }
+  if (!baseLanguage) return null;
 
   const sharedBodyRandom = createSeededRandom(batchSeed ^ 0xA53A9E21);
   const sharedMassVariation = variationMode === 'randomized'
@@ -3349,77 +3430,154 @@ function generateBatchSilhouettes() {
       0,
     )
     : null;
-  const models = [];
 
-  for (let index = 0; index < count; index += 1) {
-    const seed = (batchSeed + Math.imul(index + 1, 0x9E3779B9)) >>> 0;
-    const settingsRandom = createSeededRandom(seed ^ 0x85EBCA6B);
-    let language = baseLanguage;
-    let proportions = { ...baseProportions };
-    let modelPoseOffsets = clonePoseOffsetMap(basePoseOffsets);
-    let accentSettings = cloneAccentSettings(baseAccentSettings);
-    let massVariation = null;
+  return {
+    batchSeed,
+    variationMode,
+    randomizationScope,
+    baseLanguage,
+    baseProportions,
+    basePoseOffsets,
+    baseAccentSettings,
+    limbVariationStrength,
+    varyPose,
+    preservePoseSymmetry: symmetryToggle.checked,
+    sharedMassVariation,
+  };
+}
 
-    if (variationMode === 'randomized') {
-      if (randomizationScope === 'accent') {
+function createBatchSheetItem(index, generationContext) {
+  const {
+    batchSeed,
+    variationMode,
+    randomizationScope,
+    baseLanguage,
+    baseProportions,
+    basePoseOffsets,
+    baseAccentSettings,
+    limbVariationStrength,
+    varyPose,
+    preservePoseSymmetry,
+    sharedMassVariation,
+  } = generationContext;
+  const seed = (batchSeed + Math.imul(index + 1, 0x9E3779B9)) >>> 0;
+  const settingsRandom = createSeededRandom(seed ^ 0x85EBCA6B);
+  let language = baseLanguage;
+  let proportions = { ...baseProportions };
+  let modelPoseOffsets = clonePoseOffsetMap(basePoseOffsets);
+  let accentSettings = cloneAccentSettings(baseAccentSettings);
+  let massVariation = null;
+
+  if (variationMode === 'randomized') {
+    if (randomizationScope === 'accent') {
+      accentSettings = createRandomizedAccentSettings(
+        baseAccentSettings,
+        settingsRandom,
+        false,
+      );
+      const limbRandom = createSeededRandom(seed ^ 0xC2B2AE35);
+      const limbVariation = createMassVariation(
+        baseLanguage,
+        limbRandom,
+        seed,
+        limbVariationStrength,
+      );
+      massVariation = mergeLimbVariation(sharedMassVariation, limbVariation);
+    } else {
+      language = createRandomizedShapeLanguage(
+        baseLanguage,
+        settingsRandom,
+        randomizationScope === 'everything',
+      );
+      proportions = createRandomizedProportions(settingsRandom);
+
+      if (randomizationScope === 'everything') {
         accentSettings = createRandomizedAccentSettings(
           baseAccentSettings,
           settingsRandom,
-          false,
+          true,
         );
-        const limbRandom = createSeededRandom(seed ^ 0xC2B2AE35);
-        const limbVariation = createMassVariation(
-          baseLanguage,
-          limbRandom,
-          seed,
-          limbVariationStrength,
-        );
-        massVariation = mergeLimbVariation(sharedMassVariation, limbVariation);
-      } else {
-        language = createRandomizedShapeLanguage(
-          baseLanguage,
-          settingsRandom,
-          randomizationScope === 'everything',
-        );
-        proportions = createRandomizedProportions(settingsRandom);
-
-        if (randomizationScope === 'everything') {
-          accentSettings = createRandomizedAccentSettings(
-            baseAccentSettings,
-            settingsRandom,
-            true,
-          );
-        }
       }
     }
-
-    if (varyPose) {
-      modelPoseOffsets = createSheetPoseVariation(
-        basePoseOffsets,
-        settingsRandom,
-        symmetryToggle.checked,
-      );
-    }
-
-    const model = createSilhouetteModel({
-      seed,
-      proportions,
-      language,
-      accentSettings,
-      poseOffsetMap: modelPoseOffsets,
-      massVariation,
-      limbVariationStrength,
-    });
-    if (model) models.push(model);
   }
 
-  currentBatchModels = models;
-  batchCanvas.dataset.seed = String(batchSeed);
-  renderBatchSheet(models);
+  if (varyPose) {
+    modelPoseOffsets = createSheetPoseVariation(
+      basePoseOffsets,
+      settingsRandom,
+      preservePoseSymmetry,
+    );
+  }
+
+  const model = createSilhouetteModel({
+    seed,
+    proportions,
+    language,
+    accentSettings,
+    poseOffsetMap: modelPoseOffsets,
+    massVariation,
+    limbVariationStrength,
+  });
+
+  return {
+    seed,
+    model,
+    settings: {
+      variationMode,
+      randomizationScope,
+      poseMode: varyPose ? 'variation' : 'same',
+      limbVariationStrength,
+      proportions: { ...proportions },
+      language: { ...language, shapeBlend: { ...language.shapeBlend } },
+      accentSettings: cloneAccentSettings(accentSettings),
+      poseOffsetMap: clonePoseOffsetMap(modelPoseOffsets),
+    },
+    kept: false,
+  };
+}
+
+function generateBatchSilhouettes() {
+  const count = clamp(Number.parseInt(batchCountControl.value, 10) || 9, 2, 30);
+  batchCountControl.value = String(count);
+  const generationContext = createBatchGenerationContext();
+
+  if (!generationContext) {
+    currentBatchItems = [];
+    renderBatchSheet(currentBatchItems);
+    return;
+  }
+
+  currentBatchItems = Array.from(
+    { length: count },
+    (_, index) => createBatchSheetItem(index, generationContext),
+  );
+  batchCanvas.dataset.seed = String(generationContext.batchSeed);
+  renderBatchSheet(currentBatchItems);
+}
+
+function rerollUnlockedSilhouettes() {
+  if (!currentBatchItems.some(item => !item.kept)) return;
+
+  const generationContext = createBatchGenerationContext();
+  if (!generationContext) return;
+
+  currentBatchItems = currentBatchItems.map((item, index) => (
+    item.kept ? item : createBatchSheetItem(index, generationContext)
+  ));
+  batchCanvas.dataset.seed = String(generationContext.batchSeed);
+  renderBatchSheet(currentBatchItems);
+}
+
+function clearBatchKeeps() {
+  currentBatchItems.forEach(item => {
+    item.kept = false;
+  });
+  renderBatchKeepOverlay(currentBatchItems);
+  updateBatchActionState();
 }
 
 function exportBatchSheetPNG() {
-  if (currentBatchModels.length === 0) return;
+  if (currentBatchItems.length === 0) return;
 
   // Composite the finished sheet into one transparent bitmap before encoding.
   // This produces one ordinary flattened PNG, never per-cell files or layers.
@@ -3470,6 +3628,8 @@ function setSheetPoseEditing(shouldEdit) {
   canvas.classList.toggle('pose-editing', shouldEdit);
   editSheetPoseButton.textContent = shouldEdit ? 'Done Editing Sheet Pose' : 'Edit Sheet Pose';
   generateBatchButton.disabled = shouldEdit;
+  batchKeepOverlay.hidden = shouldEdit;
+  updateBatchActionState();
 
   if (shouldEdit) {
     const seed = createGenerationSeed();
@@ -3495,10 +3655,11 @@ function setSheetPoseEditing(shouldEdit) {
   if (workflowMode === 'sheet') {
     canvas.hidden = true;
     batchCanvas.hidden = false;
+    batchKeepOverlay.hidden = false;
     workspaceSymmetryControl.hidden = true;
     workspaceTitle.textContent = 'Silhouette sheet';
     workspaceCanvasSize.textContent = '1920 × 1080';
-    renderBatchSheet(currentBatchModels);
+    renderBatchSheet(currentBatchItems);
   }
 }
 
@@ -3520,13 +3681,14 @@ function setWorkflowMode(mode, force = false) {
   sheetModeControls.hidden = !sheetMode;
   canvas.hidden = sheetMode;
   batchCanvas.hidden = !sheetMode;
+  batchKeepOverlay.hidden = !sheetMode;
   workspaceSymmetryControl.hidden = sheetMode;
 
   if (sheetMode) {
     canvas.classList.remove('pose-editing', 'pose-dragging');
     workspaceTitle.textContent = 'Silhouette sheet';
     workspaceCanvasSize.textContent = '1920 × 1080';
-    renderBatchSheet(currentBatchModels);
+    renderBatchSheet(currentBatchItems);
   } else {
     canvas.classList.toggle('pose-editing', editPoseToggle.checked);
     workspaceTitle.textContent = 'Single design';
@@ -3660,6 +3822,8 @@ proportionStyleControl.addEventListener('change', () => {
 randomiseProportionsButton.addEventListener('click', randomiseProportions);
 generateButton.addEventListener('click', () => generateSilhouette());
 generateBatchButton.addEventListener('click', generateBatchSilhouettes);
+rerollBatchButton.addEventListener('click', rerollUnlockedSilhouettes);
+clearBatchKeepsButton.addEventListener('click', clearBatchKeeps);
 exportBatchButton.addEventListener('click', exportBatchSheetPNG);
 singleModeButton.addEventListener('click', () => setWorkflowMode('single'));
 sheetModeButton.addEventListener('click', () => setWorkflowMode('sheet'));
@@ -3687,6 +3851,7 @@ canvas.addEventListener('pointerdown', startPoseDrag);
 canvas.addEventListener('pointermove', continuePoseDrag);
 canvas.addEventListener('pointerup', endPoseDrag);
 canvas.addEventListener('pointercancel', endPoseDrag);
+window.addEventListener('resize', syncBatchKeepOverlayBounds);
 updateSymmetryState();
 updateAccentSymmetryState();
 updateAccentInheritanceState();
